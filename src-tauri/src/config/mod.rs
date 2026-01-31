@@ -1,3 +1,6 @@
 pub mod manager;
 
-pub use manager::{ConfigManager, Config, ProviderConfig, PermissionConfig, AgentConfig, LspConfig, McpConfig};
+pub use manager::{
+    Action, AgentConfig, Config, ConfigManager, LspConfig, McpConfig, PermissionConfig,
+    ProviderConfig, ToolPermission,
+};

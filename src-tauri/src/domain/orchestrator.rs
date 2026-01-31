@@ -68,17 +68,23 @@ impl Orchestrator {
         tools: Vec<Arc<dyn crate::domain::ports::Tool>>,
         initial_mode: crate::domain::models::AgentMode,
     ) -> Result<(), String> {
+        let workspace_path = {
+            let ctx = self.context.lock().await;
+            ctx.workspace_path.clone()
+        };
+
+        let mut config_manager = crate::config::ConfigManager::new();
+        let _ = config_manager.load(Some(&workspace_path));
+        let config = config_manager.config();
+
         let session = crate::domain::models::AgentSession {
             id: agent_id,
-            workspace_path: {
-                let ctx = self.context.lock().await;
-                ctx.workspace_path.clone()
-            },
+            workspace_path,
             model: ModelId("default".to_string()),
             mode: initial_mode,
             messages: vec![],
             permissions: crate::domain::models::AgentPermissions {
-                allowed: std::collections::HashSet::new(),
+                config: config.permission.clone(),
             },
         };
 
