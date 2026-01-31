@@ -300,7 +300,7 @@ Implement task list management for tracking agent progress.
 
 ### Requirements
 - Create `src-tauri/src/adapters/tools/todowrite.rs`
-- Persist to `.opencode/TODO.md` in simple Markdown format
+- Persist to `.anvil/TODO.md` in simple Markdown format
 - Support CRUD operations (add, update, delete, list)
 - Auto-save after each change
 
@@ -348,7 +348,7 @@ Implement task list reading tool.
 
 ### Requirements
 - Create `src-tauri/src/adapters/tools/todoread.rs`
-- Parse `.opencode/TODO.md`
+- Parse `.anvil/TODO.md`
 - Return structured task data
 - Support filtering by status
 

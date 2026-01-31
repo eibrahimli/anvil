@@ -92,7 +92,7 @@ Phase 1 has been successfully completed. All core tools for the Anvil AI agent p
 **Phase 2: Configuration & Rules Engine**
 
 Tasks:
-- Create Config Manager (`opencode.json`)
+- Create Config Manager (`anvil.json`)
 - Implement granular permissions
 - Update Confirmation System
 - Enhance AGENTS.md parser

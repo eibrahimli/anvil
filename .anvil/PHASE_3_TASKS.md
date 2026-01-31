@@ -14,8 +14,8 @@
 Implement skill discovery and loading from skill directories.
 
 ### Skill Locations
-1. Project: `.opencode/skills/<name>/SKILL.md`
-2. Global: `~/.config/opencode/skills/<name>/SKILL.md`
+1. Project: `.anvil/skills/<name>/SKILL.md`
+2. Global: `~/.config/anvil/skills/<name>/SKILL.md`
 3. Claude-compatible: `.claude/skills/<name>/SKILL.md`
 4. Claude-compatible global: `~/.claude/skills/<name>/SKILL.md`
 
@@ -76,7 +76,7 @@ Use when preparing a tagged release.
 - `name` (required): Skill identifier
 - `description` (required): What the skill does
 - `license` (optional): License info
-- `compatibility` (optional): opencode | claude | all
+- `compatibility` (optional): anvil | claude | all
 - `metadata` (optional): Key-value pairs
 
 ### Name Validation

@@ -121,12 +121,12 @@ Before creating PR, verify:
 
 ## Rules for Agents
 1. **Analyze First:** Always read `AGENTS.md` and related files before making changes.
-   - **CRITICAL:** Check `.opencode/` folder for `rules.md` (Architecture/Philosophy) and `PLAN.md` (Roadmap). These contain the source of truth for project direction.
+   - **CRITICAL:** Check `.anvil/` folder for `rules.md` (Architecture/Philosophy) and `PLAN.md` (Roadmap). These contain the source of truth for project direction.
 2. **Match Style:** Adhere strictly to the project's formatting and naming conventions.
 3. **Safety:** Do not modify `src-tauri` (Rust) unless explicitly instructed and you have the capability to verify Rust builds. Focus on `src` (TypeScript/React).
 4. **No Placeholders:** Write complete, working code. If a complex logic is needed, implement it fully or ask for clarification.
 
-## Core Philosophy (from .opencode/rules.md)
+## Core Philosophy (from .anvil/rules.md)
 - **Agent-First:** Anvil is an agent runtime with a UI, not an IDE with a chat plugin.
 - **Local-First:** All logic, storage, and execution happen locally.
 - **Security-First:** No silent execution.

@@ -11,7 +11,7 @@
 **Time Estimate:** 2 hours
 
 ### Description
-Implement configuration system for `opencode.json` parsing and management.
+Implement configuration system for `anvil.json` parsing and management.
 
 ### Requirements
 - Create `src-tauri/src/config/` module
@@ -20,8 +20,8 @@ Implement configuration system for `opencode.json` parsing and management.
 - Support global + local config merging
 
 ### Config Locations
-1. Global: `~/.config/opencode/opencode.json`
-2. Local: `.opencode/opencode.json` (workspace)
+1. Global: `~/.config/anvil/anvil.json`
+2. Local: `.anvil/anvil.json` (workspace)
 
 ### Config Schema
 ```rust
@@ -242,7 +242,7 @@ Implement permission for accessing paths outside workspace.
 Watch config files for changes and reload.
 
 ### Requirements
-- Watch `.opencode/opencode.json`
+- Watch `.anvil/anvil.json`
 - Debounce changes (500ms)
 - Reload without restart
 - Notify user of changes

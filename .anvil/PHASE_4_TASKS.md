@@ -145,7 +145,7 @@ Implement Server-Sent Events transport for remote MCP servers.
 
 ### OAuth Support
 - Dynamic client registration (RFC 7591)
-- Token storage in `~/.local/share/opencode/mcp-auth.json`
+- Token storage in `~/.local/share/anvil/mcp-auth.json`
 - Auto-refresh tokens
 
 ### Acceptance Criteria
@@ -198,7 +198,7 @@ MCPTool {
 **Time Estimate:** 1.5 hours
 
 ### Description
-Add MCP config to opencode.json.
+Add MCP config to anvil.json.
 
 ### Config Schema
 ```rust
@@ -361,7 +361,7 @@ Create sample configurations for popular MCP servers.
 - **Custom Tools**: Project-specific, TypeScript/Python
 
 ### Token Storage
-- Path: `~/.local/share/opencode/mcp-auth.json`
+- Path: `~/.local/share/anvil/mcp-auth.json`
 - Permissions: 600 (user read/write only)
 - Encryption: Platform keychain if available
 

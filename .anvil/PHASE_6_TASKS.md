@@ -88,7 +88,7 @@ Auto-detect and manage LSP servers.
 - Handle multiple concurrent servers
 - Restart on crash
 
-### Supported Languages (from opencode docs)
+### Supported Languages (from anvil docs)
 - TypeScript (typescript-language-server)
 - Rust (rust-analyzer)
 - Python (pyright)
@@ -99,7 +99,7 @@ Auto-detect and manage LSP servers.
 ### Auto-Installation
 - Download pre-built binaries
 - Or use system-installed servers
-- Config: `OPENCODE_DISABLE_LSP_DOWNLOAD`
+- Config: `ANVIL_DISABLE_LSP_DOWNLOAD`
 
 ### Acceptance Criteria
 - [ ] Auto-detection works
@@ -153,7 +153,7 @@ parameters: {
 **Time Estimate:** 2 hours
 
 ### Description
-Add LSP config to opencode.json.
+Add LSP config to anvil.json.
 
 ### Config Schema
 ```rust
