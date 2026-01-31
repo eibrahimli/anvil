@@ -7,9 +7,16 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 pub struct AppState {
-    pub agents: Mutex<HashMap<Uuid, Arc<tokio::sync::Mutex<Agent>>>>,
+    pub agents: Arc<tokio::sync::Mutex<HashMap<Uuid, Arc<tokio::sync::Mutex<Agent>>>>>,
     pub terminal: Mutex<TerminalManager>,
-    pub pending_confirmations: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
+    pub pending_confirmations: Arc<
+        Mutex<
+            HashMap<
+                String,
+                tokio::sync::oneshot::Sender<crate::domain::models::ConfirmationResponse>,
+            >,
+        >,
+    >,
     pub storage: Arc<Mutex<Option<Storage>>>,
     pub orchestrator: tokio::sync::Mutex<Option<Orchestrator>>,
 }
@@ -17,7 +24,7 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         Self {
-            agents: Mutex::new(HashMap::new()),
+            agents: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             terminal: Mutex::new(TerminalManager::new()),
             pending_confirmations: Arc::new(Mutex::new(HashMap::new())),
             storage: Arc::new(Mutex::new(None)),

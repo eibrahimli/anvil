@@ -14,11 +14,13 @@ use serde::Serialize;
 #[derive(Serialize, Clone)]
 struct ConfirmationRequest {
     id: String,
+    session_id: String,
     #[serde(rename = "type")]
     type_: String,
     file_path: String,
     old_content: Option<String>,
     new_content: String,
+    suggested_pattern: String,
 }
 
 pub struct ReadFileTool {
@@ -75,20 +77,26 @@ impl Tool for ReadFileTool {
 
 pub struct WriteFileTool {
     pub workspace_root: PathBuf,
+    pub session_id: String,
     pub app: AppHandle,
-    pub pending_confirmations: Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
+    pub pending_confirmations: Arc<Mutex<HashMap<String, oneshot::Sender<crate::domain::models::ConfirmationResponse>>>>,
+    pub permission_manager: Arc<tokio::sync::Mutex<crate::config::PermissionConfig>>,
 }
 
 impl WriteFileTool {
     pub fn new(
         workspace_root: PathBuf,
+        session_id: String,
         app: AppHandle,
-        pending_confirmations: Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
+        pending_confirmations: Arc<Mutex<HashMap<String, oneshot::Sender<crate::domain::models::ConfirmationResponse>>>>,
+        permission_manager: Arc<tokio::sync::Mutex<crate::config::PermissionConfig>>,
     ) -> Self {
         Self { 
             workspace_root,
+            session_id,
             app,
             pending_confirmations,
+            permission_manager,
         }
     }
 }
@@ -140,40 +148,61 @@ impl Tool for WriteFileTool {
             fs::create_dir_all(parent).await.map_err(|e| format!("Failed to create directories: {}", e))?;
         }
 
-        // --- Confirmation Logic ---
-        let old_content = if path.exists() {
-            Some(fs::read_to_string(&path).await.unwrap_or_default())
-        } else {
-            None
+        // Check if allowed by permission manager
+        let allowed = {
+            let config = self.permission_manager.lock().await;
+            config.write.evaluate(path_str) == crate::config::Action::Allow
         };
-
-        let request_id = Uuid::new_v4().to_string();
-        let (tx, rx) = oneshot::channel();
-
-        {
-            let mut map = self.pending_confirmations.lock().unwrap();
-            map.insert(request_id.clone(), tx);
-        }
-
-        let event = ConfirmationRequest {
-            id: request_id.clone(),
-            type_: "diff".to_string(),
-            file_path: path_str.to_string(),
-            old_content,
-            new_content: content.to_string(),
-        };
-
-        self.app.emit("request-confirmation", &event)
-            .map_err(|e| format!("Failed to emit confirmation event: {}", e))?;
-
-        // Wait for user response
-        // This blocks the tool execution (and thus the agent step) until frontend responds
-        let allowed = rx.await.map_err(|_| "Confirmation channel closed without response".to_string())?;
 
         if !allowed {
-            return Err("User denied file write.".to_string());
+            // --- Confirmation Logic ---
+            let old_content = if path.exists() {
+                Some(fs::read_to_string(&path).await.unwrap_or_default())
+            } else {
+                None
+            };
+
+            let request_id = Uuid::new_v4().to_string();
+            println!("WriteFileTool: Requesting confirmation for id={} session={}", request_id, self.session_id);
+            let (tx, rx) = oneshot::channel();
+
+            {
+                let mut map = self.pending_confirmations.lock().unwrap();
+                map.insert(request_id.clone(), tx);
+            }
+
+            let event = ConfirmationRequest {
+                id: request_id.clone(),
+                session_id: self.session_id.clone(),
+                type_: "diff".to_string(),
+                file_path: path_str.to_string(),
+                old_content,
+                new_content: content.to_string(),
+                suggested_pattern: path_str.to_string(),
+            };
+
+            self.app.emit("request-confirmation", &event)
+                .map_err(|e| format!("Failed to emit confirmation event: {}", e))?;
+
+            // Wait for user response
+            // This blocks the tool execution (and thus the agent step) until frontend responds
+            let response = rx.await.map_err(|_| "Confirmation channel closed without response".to_string())?;
+
+            if !response.allowed {
+                return Err("User denied file write.".to_string());
+            }
+
+            if response.always {
+                if let Some(pattern) = response.pattern {
+                    let mut config = self.permission_manager.lock().await;
+                    config.write.rules.push(crate::config::manager::PermissionRule {
+                        pattern,
+                        action: crate::config::Action::Allow,
+                    });
+                }
+            }
+            // --------------------------
         }
-        // --------------------------
 
         match fs::write(path, content).await {
             Ok(_) => Ok(json!({ "status": "success" })),
@@ -184,20 +213,26 @@ impl Tool for WriteFileTool {
 
 pub struct EditFileTool {
     pub workspace_root: PathBuf,
+    pub session_id: String,
     pub app: AppHandle,
-    pub pending_confirmations: Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
+    pub pending_confirmations: Arc<Mutex<HashMap<String, oneshot::Sender<crate::domain::models::ConfirmationResponse>>>>,
+    pub permission_manager: Arc<tokio::sync::Mutex<crate::config::PermissionConfig>>,
 }
 
 impl EditFileTool {
     pub fn new(
         workspace_root: PathBuf,
+        session_id: String,
         app: AppHandle,
-        pending_confirmations: Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
+        pending_confirmations: Arc<Mutex<HashMap<String, oneshot::Sender<crate::domain::models::ConfirmationResponse>>>>,
+        permission_manager: Arc<tokio::sync::Mutex<crate::config::PermissionConfig>>,
     ) -> Self {
         Self {
             workspace_root,
+            session_id,
             app,
             pending_confirmations,
+            permission_manager,
         }
     }
 }
@@ -285,32 +320,53 @@ impl Tool for EditFileTool {
             new_content = new_content.replace(old_text, replace_text);
         }
 
-        // --- Confirmation Logic ---
-        let request_id = Uuid::new_v4().to_string();
-        let (tx, rx) = oneshot::channel();
-
-        {
-            let mut map = self.pending_confirmations.lock().unwrap();
-            map.insert(request_id.clone(), tx);
-        }
-
-        let event = ConfirmationRequest {
-            id: request_id.clone(),
-            type_: "diff".to_string(),
-            file_path: path_str.to_string(),
-            old_content: Some(original_content),
-            new_content: new_content.clone(),
+        // Check if allowed by permission manager
+        let allowed = {
+            let config = self.permission_manager.lock().await;
+            config.edit.evaluate(path_str) == crate::config::Action::Allow
         };
 
-        self.app.emit("request-confirmation", &event)
-            .map_err(|e| format!("Failed to emit confirmation event: {}", e))?;
-
-        let allowed = rx.await.map_err(|_| "Confirmation channel closed without response".to_string())?;
-
         if !allowed {
-            return Err("User denied file edit.".to_string());
+            // --- Confirmation Logic ---
+            let request_id = Uuid::new_v4().to_string();
+            println!("EditFileTool: Requesting confirmation for id={} session={}", request_id, self.session_id);
+            let (tx, rx) = oneshot::channel();
+
+            {
+                let mut map = self.pending_confirmations.lock().unwrap();
+                map.insert(request_id.clone(), tx);
+            }
+
+            let event = ConfirmationRequest {
+                id: request_id.clone(),
+                session_id: self.session_id.clone(),
+                type_: "diff".to_string(),
+                file_path: path_str.to_string(),
+                old_content: Some(original_content),
+                new_content: new_content.clone(),
+                suggested_pattern: path_str.to_string(),
+            };
+
+            self.app.emit("request-confirmation", &event)
+                .map_err(|e| format!("Failed to emit confirmation event: {}", e))?;
+
+            let response = rx.await.map_err(|_| "Confirmation channel closed without response".to_string())?;
+
+            if !response.allowed {
+                return Err("User denied file edit.".to_string());
+            }
+
+            if response.always {
+                if let Some(pattern) = response.pattern {
+                    let mut config = self.permission_manager.lock().await;
+                    config.edit.rules.push(crate::config::manager::PermissionRule {
+                        pattern,
+                        action: crate::config::Action::Allow,
+                    });
+                }
+            }
+            // --------------------------
         }
-        // --------------------------
 
         match fs::write(path, new_content).await {
             Ok(_) => Ok(json!({ "status": "success", "message": format!("Applied {} edit(s) to {}", edits_val.len(), path_str) })),

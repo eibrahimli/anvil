@@ -104,24 +104,35 @@ pub async fn create_session(
         _ => return Err(format!("Unsupported provider: {}", provider)),
     };
 
+    let mut config_manager = crate::config::ConfigManager::new();
+    let _ = config_manager.load(Some(&path));
+    let config = config_manager.config();
+    let permission_manager = Arc::new(tokio::sync::Mutex::new(config.permission.clone()));
+
     let tools = vec![
         Arc::new(ReadFileTool::new(path.clone())) as Arc<dyn crate::domain::ports::Tool>,
         Arc::new(WriteFileTool::new(
             path.clone(),
+            id.to_string(),
             app.clone(),
-            state.pending_confirmations.clone()
+            state.pending_confirmations.clone(),
+            permission_manager.clone()
         )),
         Arc::new(BashTool::new(
             path.clone(),
+            id.to_string(),
             app.clone(),
-            state.pending_confirmations.clone()
+            state.pending_confirmations.clone(),
+            permission_manager.clone()
         )),
         Arc::new(GitTool::new(path.clone())),
         Arc::new(SearchTool::new(path.clone())),
         Arc::new(EditFileTool::new(
             path.clone(),
+            id.to_string(),
             app.clone(),
-            state.pending_confirmations.clone()
+            state.pending_confirmations.clone(),
+            permission_manager.clone()
         )),
         Arc::new(SymbolsTool::new(path.clone())),
         Arc::new(GlobTool::new(path.clone())),
@@ -132,10 +143,6 @@ pub async fn create_session(
         Arc::new(TodoWriteTool::new(path.clone())),
         Arc::new(TodoReadTool::new(path.clone())),
     ];
-
-    let mut config_manager = crate::config::ConfigManager::new();
-    let _ = config_manager.load(Some(&path));
-    let config = config_manager.config();
 
     let new_session = AgentSession {
         id,
@@ -148,9 +155,9 @@ pub async fn create_session(
         },
     };
 
-    let agent = Agent::new(new_session.clone(), model.clone(), tools);
+    let agent = Agent::new(new_session.clone(), model.clone(), tools, permission_manager);
 
-    let mut agents = state.agents.lock().map_err(|_| "Failed to lock state")?;
+    let mut agents = state.agents.lock().await;
     agents.insert(id, Arc::new(Mutex::new(agent)));
 
     Ok(id.to_string())
@@ -168,7 +175,7 @@ pub async fn chat(
     let uuid = Uuid::parse_str(&session_id).map_err(|_| "Invalid UUID")?;
 
     let agent_arc = {
-        let agents = state.agents.lock().map_err(|_| "Failed to lock state")?;
+        let agents = state.agents.lock().await;
         agents.get(&uuid).cloned().ok_or("Session not found".to_string())?
     };
 
@@ -211,7 +218,7 @@ pub async fn stream_chat(
     let uuid = Uuid::parse_str(&session_id).map_err(|_| "Invalid UUID")?;
 
     let agent_arc = {
-        let agents = state.agents.lock().map_err(|_| "Failed to lock state")?;
+        let agents = state.agents.lock().await;
         agents.get(&uuid).cloned().ok_or("Session not found".to_string())?
     };
 
@@ -254,11 +261,19 @@ pub async fn stream_chat(
 pub async fn confirm_action(
     state: State<'_, AppState>,
     id: String,
+    session_id: String,
     allowed: bool,
+    always: bool,
+    pattern: Option<String>,
 ) -> Result<(), String> {
+    println!("Confirming action: id={}, session={}, allowed={}, always={}, pattern={:?}", id, session_id, allowed, always, pattern);
     let mut map = state.pending_confirmations.lock().map_err(|_| "Failed to lock")?;
     if let Some(tx) = map.remove(&id) {
-        let _ = tx.send(allowed);
+        let _ = tx.send(crate::domain::models::ConfirmationResponse {
+            allowed,
+            always,
+            pattern,
+        });
         Ok(())
     } else {
         Err("Confirmation ID not found or already processed".to_string())
@@ -273,7 +288,7 @@ pub async fn save_session(
     let uuid = Uuid::parse_str(&session_id).map_err(|_| "Invalid UUID")?;
 
     let agent_arc = {
-        let agents = state.agents.lock().map_err(|_| "Failed to lock state")?;
+        let agents = state.agents.lock().await;
         agents.get(&uuid).cloned().ok_or("Session not found".to_string())?
     };
 
@@ -343,24 +358,35 @@ pub async fn replay_session(
         _ => return Err(format!("Unsupported provider: {}", provider)),
     };
 
+    let mut config_manager = crate::config::ConfigManager::new();
+    let _ = config_manager.load(Some(&path));
+    let config = config_manager.config();
+    let permission_manager = Arc::new(tokio::sync::Mutex::new(config.permission.clone()));
+
     let tools = vec![
         Arc::new(ReadFileTool::new(path.clone())) as Arc<dyn crate::domain::ports::Tool>,
         Arc::new(WriteFileTool::new(
             path.clone(),
+            uuid.to_string(),
             app.clone(),
-            state.pending_confirmations.clone()
+            state.pending_confirmations.clone(),
+            permission_manager.clone()
         )),
         Arc::new(BashTool::new(
             path.clone(),
+            uuid.to_string(),
             app.clone(),
-            state.pending_confirmations.clone()
+            state.pending_confirmations.clone(),
+            permission_manager.clone()
         )),
         Arc::new(GitTool::new(path.clone())),
         Arc::new(SearchTool::new(path.clone())),
         Arc::new(EditFileTool::new(
             path.clone(),
+            uuid.to_string(),
             app.clone(),
-            state.pending_confirmations.clone()
+            state.pending_confirmations.clone(),
+            permission_manager.clone()
         )),
         Arc::new(SymbolsTool::new(path.clone())),
         Arc::new(GlobTool::new(path.clone())),
@@ -371,10 +397,6 @@ pub async fn replay_session(
         Arc::new(TodoWriteTool::new(path.clone())),
         Arc::new(TodoReadTool::new(path.clone())),
     ];
-
-    let mut config_manager = crate::config::ConfigManager::new();
-    let _ = config_manager.load(Some(&path));
-    let config = config_manager.config();
 
     let new_session = AgentSession {
         id: uuid,
@@ -387,9 +409,9 @@ pub async fn replay_session(
         },
     };
 
-    let agent = Agent::new(new_session, model, tools);
+    let agent = Agent::new(new_session, model, tools, permission_manager);
 
-    let mut agents = state.agents.lock().map_err(|_| "Failed to lock state")?;
+    let mut agents = state.agents.lock().await;
     agents.insert(uuid, Arc::new(Mutex::new(agent)));
 
     Ok(uuid.to_string())
@@ -441,24 +463,36 @@ pub async fn add_agent_to_orchestrator(
     };
 
     let path = PathBuf::from(workspace_path);
+    
+    let mut config_manager = crate::config::ConfigManager::new();
+    let _ = config_manager.load(Some(&path));
+    let config = config_manager.config();
+    let permission_manager = Arc::new(tokio::sync::Mutex::new(config.permission.clone()));
+
     let tools = vec![
         Arc::new(ReadFileTool::new(path.clone())) as Arc<dyn crate::domain::ports::Tool>,
         Arc::new(WriteFileTool::new(
             path.clone(),
+            agent_id.clone(),
             app.clone(),
-            state.pending_confirmations.clone()
+            state.pending_confirmations.clone(),
+            permission_manager.clone()
         )),
         Arc::new(BashTool::new(
             path.clone(),
+            agent_id.clone(),
             app.clone(),
-            state.pending_confirmations.clone()
+            state.pending_confirmations.clone(),
+            permission_manager.clone()
         )),
         Arc::new(GitTool::new(path.clone())),
         Arc::new(SearchTool::new(path.clone())),
         Arc::new(EditFileTool::new(
             path.clone(),
+            agent_id.clone(),
             app.clone(),
-            state.pending_confirmations.clone()
+            state.pending_confirmations.clone(),
+            permission_manager.clone()
         )),
         Arc::new(SymbolsTool::new(path.clone())),
         Arc::new(GlobTool::new(path.clone())),

@@ -8,6 +8,7 @@ pub struct Agent {
     pub session: AgentSession,
     model: Arc<dyn ModelAdapter>,
     tools: Vec<Arc<dyn Tool>>,
+    pub permission_manager: Arc<tokio::sync::Mutex<crate::config::PermissionConfig>>,
 }
 
 impl Agent {
@@ -15,11 +16,13 @@ impl Agent {
         session: AgentSession,
         model: Arc<dyn ModelAdapter>,
         tools: Vec<Arc<dyn Tool>>,
+        permission_manager: Arc<tokio::sync::Mutex<crate::config::PermissionConfig>>,
     ) -> Self {
         Self {
             session,
             model,
             tools,
+            permission_manager,
         }
     }
 
@@ -34,6 +37,25 @@ impl Agent {
 
     pub fn get_session(&self) -> AgentSession {
         self.session.clone()
+    }
+
+    pub async fn add_permission_rule(&mut self, tool_name: &str, pattern: String, action: crate::config::Action) {
+        let mut config = self.permission_manager.lock().await;
+        let tool_perm = match tool_name {
+            "bash" => &mut config.bash,
+            "read_file" | "read" => &mut config.read,
+            "write_file" | "write" => &mut config.write,
+            "edit_file" | "edit" => &mut config.edit,
+            _ => return,
+        };
+
+        tool_perm.rules.push(crate::config::manager::PermissionRule {
+            pattern,
+            action,
+        });
+        
+        // Sync back to session for persistence
+        self.session.permissions.config = config.clone();
     }
 
     pub async fn step(&mut self, user_input: Option<String>) -> Result<String, String> {
@@ -164,24 +186,27 @@ impl Agent {
                          let args: Value = serde_json::from_str(&call.arguments).unwrap_or(json!({}));
                          
                          // Check Permissions
-                         let action = match tool.name() {
-                             "bash" => {
-                                 let cmd = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
-                                 self.session.permissions.config.bash.evaluate(cmd)
-                             },
-                             "read_file" => {
-                                 let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                                 self.session.permissions.config.read.evaluate(path)
-                             },
-                             "write_file" => {
-                                 let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                                 self.session.permissions.config.write.evaluate(path)
-                             },
-                             "edit_file" => {
-                                 let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                                 self.session.permissions.config.edit.evaluate(path)
-                             },
-                             _ => crate::config::Action::Allow, // Other tools allowed by default for now
+                         let action = {
+                             let config = self.permission_manager.lock().await;
+                             match tool.name() {
+                                 "bash" => {
+                                     let cmd = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
+                                     config.bash.evaluate(cmd)
+                                 },
+                                 "read_file" => {
+                                     let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                                     config.read.evaluate(path)
+                                 },
+                                 "write_file" => {
+                                     let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                                     config.write.evaluate(path)
+                                 },
+                                 "edit_file" => {
+                                     let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                                     config.edit.evaluate(path)
+                                 },
+                                 _ => crate::config::Action::Allow, // Other tools allowed by default for now
+                             }
                          };
 
                          match action {
@@ -358,24 +383,27 @@ impl Agent {
                          let args: Value = serde_json::from_str(&call.arguments).unwrap_or(json!({}));
                          
                          // Check Permissions
-                         let action = match tool.name() {
-                             "bash" => {
-                                 let cmd = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
-                                 self.session.permissions.config.bash.evaluate(cmd)
-                             },
-                             "read_file" => {
-                                 let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                                 self.session.permissions.config.read.evaluate(path)
-                             },
-                             "write_file" => {
-                                 let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                                 self.session.permissions.config.write.evaluate(path)
-                             },
-                             "edit_file" => {
-                                 let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                                 self.session.permissions.config.edit.evaluate(path)
-                             },
-                             _ => crate::config::Action::Allow,
+                         let action = {
+                             let config = self.permission_manager.lock().await;
+                             match tool.name() {
+                                 "bash" => {
+                                     let cmd = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
+                                     config.bash.evaluate(cmd)
+                                 },
+                                 "read_file" => {
+                                     let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                                     config.read.evaluate(path)
+                                 },
+                                 "write_file" => {
+                                     let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                                     config.write.evaluate(path)
+                                 },
+                                 "edit_file" => {
+                                     let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                                     config.edit.evaluate(path)
+                                 },
+                                 _ => crate::config::Action::Allow,
+                             }
                          };
 
                          match action {

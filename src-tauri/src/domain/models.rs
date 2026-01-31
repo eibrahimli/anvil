@@ -44,6 +44,13 @@ pub enum AgentRole {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfirmationResponse {
+    pub allowed: bool,
+    pub always: bool,
+    pub pattern: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentPermissions {
     pub config: crate::config::PermissionConfig,
 }

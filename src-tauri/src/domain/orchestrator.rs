@@ -76,6 +76,7 @@ impl Orchestrator {
         let mut config_manager = crate::config::ConfigManager::new();
         let _ = config_manager.load(Some(&workspace_path));
         let config = config_manager.config();
+        let permission_manager = Arc::new(tokio::sync::Mutex::new(config.permission.clone()));
 
         let session = crate::domain::models::AgentSession {
             id: agent_id,
@@ -88,7 +89,7 @@ impl Orchestrator {
             },
         };
 
-        let agent = Agent::new(session, model, tools);
+        let agent = Agent::new(session, model, tools, permission_manager);
         let mut agents = self.agents.lock().await;
         agents.insert(agent_id, Arc::new(tokio::sync::Mutex::new(agent)));
         Ok(())
