@@ -8,6 +8,7 @@ import { Message } from "../types";
 import { ChevronDown, Send, Sparkles, User, Terminal as TermIcon, History as HistoryIcon, Zap, Clock, Image as ImageIcon } from "lucide-react";
 import { ToolResultRenderer } from "./tools/ToolResultRenderer";
 import { QuestionModal } from "./QuestionModal";
+import { TodoIndicator } from "./TodoIndicator";
 import clsx from "clsx";
 
 import { useAgentEvents } from "../hooks/useAgentEvents";
@@ -206,6 +207,7 @@ export function Chat() {
                 </div>
 
                 <div className="flex items-center gap-3">
+                    <TodoIndicator />
                     <button className="p-1.5 hover:bg-[var(--bg-elevated)] rounded-md text-gray-400 transition-colors">
                         <HistoryIcon size={16} />
                     </button>

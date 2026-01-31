@@ -5,7 +5,53 @@
 > **Priority:** MEDIUM - Critical for "Not an IDE" philosophy
 > **Depends on:** Phase 1 completion (question/todo tools)
 
-## Task 5.1: Activity Stream Redesign (Concept)
+## Task 5.1: Integrate Session History into Workspace Switcher
+**Status:** 🔄 IN PROGRESS
+**Assignee:** AI Agent
+**Time Estimate:** 2 hours
+
+### Description
+Move session history from modal popup into the workspace sidebar switcher. Show recent sessions when hovering/clicking on a workspace.
+
+### Current Problem
+- History is shown as a separate modal (HistoryModal)
+- Not integrated with workspace context
+- Requires clicking a separate clock icon
+
+### Target Design
+**Workspace-Centric History**: Sessions are part of the workspace
+
+```
+┌─────────────────────────────────────┐
+│  A  Workspace A          [+ Add]    │
+│  B  Workspace B                     │
+│     ┌──────────────────────────┐    │
+│     │ 📋 Session 1 (2h ago)    │    │
+│     │ 🔨 Session 2 (5m ago)    │    │
+│     │ [+ New Session]          │    │
+│     └──────────────────────────┘    │
+│  C  Workspace C                     │
+└─────────────────────────────────────┘
+```
+
+### Implementation Plan
+1. **Remove** HistoryModal component usage
+2. **Add** session list to workspace hover/click in ActivityBar
+3. **Show** recent sessions (3-5) per workspace
+4. **Click** session to replay/resume
+5. **Add** "+ New Session" button per workspace
+
+### Acceptance Criteria
+- [ ] Hover/click workspace shows its sessions
+- [ ] Sessions sorted by date (newest first)
+- [ ] Click session to replay
+- [ ] Visual distinction between active/completed sessions
+- [ ] "New Session" button for quick start
+- [ ] Remove HistoryModal from AppShell
+
+---
+
+## Task 5.2: Activity Stream Redesign (Concept)
 **Status:** ⬜ Not Started
 **Assignee:** AI Agent
 **Time Estimate:** 2 hours
@@ -54,7 +100,7 @@ Redesign the Chat UI to look like an "Activity Log" rather than a messenger.
 
 ---
 
-## Task 5.2: Implement Thinking Blocks
+## Task 5.3: Implement Thinking Blocks
 **Status:** ⬜ Not Started
 **Assignee:** AI Agent
 **Time Estimate:** 2 hours
@@ -68,24 +114,9 @@ Create collapsible "thinking" sections in chat.
 - Expand on click
 - Visual distinction (grey background, italic)
 
-### Implementation
-```typescript
-interface ThinkingBlock {
-  id: string;
-  content: string;
-  isExpanded: boolean;
-}
-```
-
-### Acceptance Criteria
-- [ ] Blocks render correctly
-- [ ] Collapse/expand works
-- [ ] Visual styling distinct
-- [ ] Doesn't overwhelm chat
-
 ---
 
-## Task 5.3: Implement Action Cards
+## Task 5.4: Implement Action Cards
 **Status:** ⬜ Not Started
 **Assignee:** AI Agent
 **Time Estimate:** 3 hours
@@ -93,43 +124,21 @@ interface ThinkingBlock {
 ### Description
 Redesign tool execution display as action cards.
 
-### Current State
-Tool results shown as JSON/text blocks
-
-### Target State
-```
-┌──────────────────────────────────────────┐
-│ 🖥️  bash                                  │
-│ Running: npm install                      │
-│ ▓▓▓▓▓▓▓▓░░░░░░░░░░ 45%                  │
-│ [View Output] [Stop]                      │
-└──────────────────────────────────────────┘
-```
-
-### States
-1. **Pending**: Grey, waiting for permission
-2. **Running**: Spinner, progress bar, live output
-3. **Success**: Green checkmark, collapsed output
-4. **Error**: Red X, expanded error details
-
-### Acceptance Criteria
-- [ ] Cards for each tool type
-- [ ] State visualization correct
-- [ ] Progress indication (when possible)
-- [ ] Collapsible output
+### Requirements
+- Tool results shown as cards, not JSON/text blocks
+- States: Pending (grey), Running (spinner), Success (green), Error (red)
+- Progress indication where possible
+- Collapsible output
 
 ---
 
-## Task 5.4: Create Status Indicator Bar
+## Task 5.5: Create Status Indicator Bar
 **Status:** ⬜ Not Started
 **Assignee:** AI Agent
 **Time Estimate:** 1.5 hours
 
 ### Description
 Add persistent status bar showing agent state.
-
-### Location
-Bottom of chat or top header
 
 ### States
 - **Planning**: 🧠 Analyzing problem...
@@ -139,88 +148,11 @@ Bottom of chat or top header
 - **Waiting**: ⏳ Waiting for approval...
 - **Done**: ✅ Task completed
 
-### Visual Design
-- Color-coded badges
-- Animated transitions
-- Click to see detailed status
-
-### Acceptance Criteria
-- [ ] Status bar renders
-- [ ] States update correctly
-- [ ] Visual design approved
-
 ---
 
-## Task 5.5: Enhance Todo Panel
-**Status:** ⬜ Not Started
-**Assignee:** AI Agent
-**Time Estimate:** 2 hours
-
-### Description
-Create persistent todo/plan panel (depends on Task 1.10).
-
-### Location
-Right side panel (opposite file tree)
-
-### Features
-- Always visible during agent execution
-- Shows current task at top
-- Collapsible sections (In Progress, Pending, Completed)
-- Visual indicators for priority
-- User can mark tasks complete
-- Updates in real-time from TODO.md
-
-### Visual Design
-```
-┌──────────────┐
-│ 📋 Plan       │
-├──────────────┤
-│ ▶ In Progress│
-│ • Task 1     │
-├──────────────┤
-│ ○ Pending    │
-│ • Task 2     │
-│ • Task 3     │
-├──────────────┤
-│ ✓ Completed  │
-│ • Task 0     │
-└──────────────┘
-```
-
-### Acceptance Criteria
-- [ ] Panel always visible
-- [ ] Updates in real-time
-- [ ] Sections collapsible
-- [ ] User interactions work
-
----
-
-## Task 5.6: Redesign Tool Result Cards
-**Status:** ⬜ Not Started
-**Assignee:** AI Agent
-**Time Estimate:** 2 hours
-
-### Description
-Improve tool result visualization.
-
-### Requirements
-- **File Read**: Syntax highlighted code preview
-- **Bash**: Terminal-like output with scroll
-- **Search**: Results with file:line links
-- **Edit**: Side-by-side diff view
-- **Write**: File creation confirmation
-
-### All Cards Should
-- Be collapsed by default (show summary)
-- Expand on click
-- Have copy button
-- Have open in editor link (for files)
-
-### Acceptance Criteria
-- [ ] All tool types have custom cards
-- [ ] Collapsed by default
-- [ ] Syntax highlighting
-- [ ] Interactive elements work
+## Task 5.6: Enhance Todo Panel (Already Done)
+**Status:** ✅ COMPLETE
+**Notes:** Converted from side panel to header indicator + inline chat display
 
 ---
 
@@ -232,29 +164,6 @@ Improve tool result visualization.
 ### Description
 Group related messages (thinking + tools + result) into single unit.
 
-### Problem
-Currently each message is separate, hard to follow flow.
-
-### Solution
-Group messages by "intent" or "step":
-```
-Step 1: Analyze
-  ├─ 🧠 Thinking: "I need to understand the structure..."
-  ├─ 📖 Read: package.json
-  ├─ 📖 Read: README.md
-  └─ 💬 Result: "This is a React app..."
-
-Step 2: Implement
-  ├─ 🧠 Thinking: "I'll add a new component..."
-  ├─ ✏️  Edit: src/App.tsx
-  └─ 💬 Result: "Added the component..."
-```
-
-### Acceptance Criteria
-- [ ] Messages grouped logically
-- [ ] Groups collapsible
-- [ ] Clear visual hierarchy
-
 ---
 
 ## Task 5.8: Add Timeline View
@@ -265,23 +174,6 @@ Step 2: Implement
 ### Description
 Alternative view showing agent activity as timeline.
 
-### Toggle
-Chat View <-> Timeline View
-
-### Timeline Elements
-- Time markers
-- Tool executions as events
-- Gaps between activities
-- Duration indicators
-
-### Use Case
-Debugging agent behavior, understanding time spent
-
-### Acceptance Criteria
-- [ ] Timeline view works
-- [ ] Toggle between views
-- [ ] Shows useful timing info
-
 ---
 
 ## Task 5.9: Improve Loading States
@@ -291,17 +183,6 @@ Debugging agent behavior, understanding time spent
 
 ### Description
 Better loading/skeleton states.
-
-### Requirements
-- Skeleton for chat messages
-- Typing indicator for agent
-- Progress bars for long operations
-- Placeholder content
-
-### Acceptance Criteria
-- [ ] Skeletons implemented
-- [ ] Typing indicator shows
-- [ ] Progress bars for uploads/operations
 
 ---
 
@@ -314,42 +195,19 @@ Better loading/skeleton states.
 - [ ] UI component tests
 - [ ] User flow tests
 - [ ] Accessibility audit
-- [ ] Performance tests (rendering 100+ messages)
-- [ ] User feedback session
-
-### Acceptance Criteria
-- [ ] All tests pass
-- [ ] Performance acceptable
-- [ ] Users can follow agent actions
+- [ ] Performance tests
 
 ---
 
 ## Progress Summary
 
-- [ ] Task 5.1: Activity Stream Redesign (Concept)
-- [ ] Task 5.2: Implement Thinking Blocks
-- [ ] Task 5.3: Implement Action Cards
-- [ ] Task 5.4: Create Status Indicator Bar
-- [ ] Task 5.5: Enhance Todo Panel
-- [ ] Task 5.6: Redesign Tool Result Cards
-- [ ] Task 5.7: Implement Message Grouping
-- [ ] Task 5.8: Add Timeline View
-- [ ] Task 5.9: Improve Loading States
+- [x] Task 5.1: Workspace Session History (Added to plan - ready to implement)
+- [ ] Task 5.2: Activity Stream Concept
+- [ ] Task 5.3: Thinking Blocks
+- [ ] Task 5.4: Action Cards
+- [ ] Task 5.5: Status Indicator Bar
+- [x] Task 5.6: Todo Panel Enhancement
+- [ ] Task 5.7: Message Grouping
+- [ ] Task 5.8: Timeline View
+- [ ] Task 5.9: Loading States
 - [ ] Task 5.10: Phase 5 Testing
-
----
-
-## Design Principles
-
-1. **Clarity**: Always know what agent is doing
-2. **Brevity**: Don't overwhelm with output
-3. **Actionable**: Easy to see and interact with results
-4. **History**: Can scroll back and understand what happened
-
-## Key UX Tenets
-
-- Agent is the primary actor, user is the director
-- Show process, not just results
-- Progressive disclosure (start collapsed, expand on demand)
-- Clear state transitions (Planning -> Doing -> Done)
-- Never hide that an AI is doing the work
