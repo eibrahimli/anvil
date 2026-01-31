@@ -5,6 +5,7 @@ pub mod app_state;
 pub mod commands;
 pub mod terminal;
 pub mod storage;
+pub mod config;
 
 use app_state::AppState;
 use tauri::Manager;
