@@ -110,7 +110,7 @@ pub async fn create_session(
     let permission_manager = Arc::new(tokio::sync::Mutex::new(config.permission.clone()));
 
     let tools = vec![
-        Arc::new(ReadFileTool::new(path.clone())) as Arc<dyn crate::domain::ports::Tool>,
+        Arc::new(ReadFileTool::new(path.clone(), permission_manager.clone())) as Arc<dyn crate::domain::ports::Tool>,
         Arc::new(WriteFileTool::new(
             path.clone(),
             id.to_string(),
@@ -135,8 +135,8 @@ pub async fn create_session(
             permission_manager.clone()
         )),
         Arc::new(SymbolsTool::new(path.clone())),
-        Arc::new(GlobTool::new(path.clone())),
-        Arc::new(ListTool::new(path.clone())),
+        Arc::new(GlobTool::new(path.clone(), permission_manager.clone())),
+        Arc::new(ListTool::new(path.clone(), permission_manager.clone())),
         Arc::new(WebFetchTool::new()),
         Arc::new(PatchTool::new(path.clone())),
         Arc::new(QuestionTool::new(app.clone())),
@@ -159,6 +159,12 @@ pub async fn create_session(
 
     let mut agents = state.agents.lock().await;
     agents.insert(id, Arc::new(Mutex::new(agent)));
+
+    crate::config::start_config_watcher(
+        state.agents.clone(),
+        state.config_watchers.clone(),
+        path.clone(),
+    );
 
     Ok(id.to_string())
 }
@@ -364,7 +370,7 @@ pub async fn replay_session(
     let permission_manager = Arc::new(tokio::sync::Mutex::new(config.permission.clone()));
 
     let tools = vec![
-        Arc::new(ReadFileTool::new(path.clone())) as Arc<dyn crate::domain::ports::Tool>,
+        Arc::new(ReadFileTool::new(path.clone(), permission_manager.clone())) as Arc<dyn crate::domain::ports::Tool>,
         Arc::new(WriteFileTool::new(
             path.clone(),
             uuid.to_string(),
@@ -389,8 +395,8 @@ pub async fn replay_session(
             permission_manager.clone()
         )),
         Arc::new(SymbolsTool::new(path.clone())),
-        Arc::new(GlobTool::new(path.clone())),
-        Arc::new(ListTool::new(path.clone())),
+        Arc::new(GlobTool::new(path.clone(), permission_manager.clone())),
+        Arc::new(ListTool::new(path.clone(), permission_manager.clone())),
         Arc::new(WebFetchTool::new()),
         Arc::new(PatchTool::new(path.clone())),
         Arc::new(QuestionTool::new(app.clone())),
@@ -413,6 +419,12 @@ pub async fn replay_session(
 
     let mut agents = state.agents.lock().await;
     agents.insert(uuid, Arc::new(Mutex::new(agent)));
+
+    crate::config::start_config_watcher(
+        state.agents.clone(),
+        state.config_watchers.clone(),
+        path.clone(),
+    );
 
     Ok(uuid.to_string())
 }
@@ -470,7 +482,7 @@ pub async fn add_agent_to_orchestrator(
     let permission_manager = Arc::new(tokio::sync::Mutex::new(config.permission.clone()));
 
     let tools = vec![
-        Arc::new(ReadFileTool::new(path.clone())) as Arc<dyn crate::domain::ports::Tool>,
+        Arc::new(ReadFileTool::new(path.clone(), permission_manager.clone())) as Arc<dyn crate::domain::ports::Tool>,
         Arc::new(WriteFileTool::new(
             path.clone(),
             agent_id.clone(),
@@ -495,8 +507,8 @@ pub async fn add_agent_to_orchestrator(
             permission_manager.clone()
         )),
         Arc::new(SymbolsTool::new(path.clone())),
-        Arc::new(GlobTool::new(path.clone())),
-        Arc::new(ListTool::new(path.clone())),
+        Arc::new(GlobTool::new(path.clone(), permission_manager.clone())),
+        Arc::new(ListTool::new(path.clone(), permission_manager.clone())),
         Arc::new(WebFetchTool::new()),
         Arc::new(PatchTool::new(path.clone())),
         Arc::new(QuestionTool::new(app.clone())),
@@ -632,7 +644,8 @@ pub async fn get_file_tree(path: String) -> Result<Vec<serde_json::Value>, Strin
     use crate::domain::ports::Tool;
     
     let path_buf = PathBuf::from(&path);
-    let tool = ListTool::new(path_buf.clone());
+    let permission_manager = std::sync::Arc::new(tokio::sync::Mutex::new(crate::config::PermissionConfig::default()));
+    let tool = ListTool::new(path_buf.clone(), permission_manager);
     
     let input = serde_json::json!({
         "path": ".",

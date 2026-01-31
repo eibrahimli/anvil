@@ -202,7 +202,7 @@ Add default permission rule to deny reading .env files.
 ---
 
 ## Task 2.6: External Directory Permissions
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 **Assignee:** AI Agent
 **Time Estimate:** 1 hour
 
@@ -227,14 +227,14 @@ Implement permission for accessing paths outside workspace.
 ```
 
 ### Acceptance Criteria
-- [ ] External path detection
-- [ ] Permission evaluation
-- [ ] Home directory expansion
+- [x] External path detection
+- [x] Permission evaluation
+- [x] Home directory expansion
 
 ---
 
 ## Task 2.7: Config Hot Reload
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 **Assignee:** AI Agent
 **Time Estimate:** 1 hour
 
@@ -248,40 +248,40 @@ Watch config files for changes and reload.
 - Notify user of changes
 
 ### Acceptance Criteria
-- [ ] File watching works
-- [ ] Config reloads
-- [ ] No restart required
+- [x] File watching works
+- [x] Config reloads
+- [x] No restart required
 
 ---
 
 ## Task 2.8: Phase 2 Testing
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 **Assignee:** AI Agent
 **Time Estimate:** 2 hours
 
 ### Test Plan
-- [ ] Config parsing tests
-- [ ] Permission evaluation tests (edge cases)
-- [ ] Pattern matching tests
-- [ ] AGENTS.md parsing tests
-- [ ] E2E: Agent respects permissions
+- [x] Config parsing tests
+- [x] Permission evaluation tests (edge cases)
+- [x] Pattern matching tests
+- [x] AGENTS.md parsing tests
+- [x] E2E: Agent respects permissions
 
 ### Acceptance Criteria
-- [ ] All tests pass
-- [ ] Security audit complete
+- [x] All tests pass
+- [x] Security audit complete
 
 ---
 
 ## Progress Summary
 
-- [ ] Task 2.1: Create Config Manager
-- [ ] Task 2.2: Implement Granular Permissions
-- [ ] Task 2.3: Update Confirmation System
-- [ ] Task 2.4: Enhance AGENTS.md Parser
-- [ ] Task 2.5: Implement .env File Protection
-- [ ] Task 2.6: External Directory Permissions
-- [ ] Task 2.7: Config Hot Reload
-- [ ] Task 2.8: Phase 2 Testing
+- [x] Task 2.1: Create Config Manager
+- [x] Task 2.2: Implement Granular Permissions
+- [x] Task 2.3: Update Confirmation System
+- [x] Task 2.4: Enhance AGENTS.md Parser
+- [x] Task 2.5: Implement .env File Protection
+- [x] Task 2.6: External Directory Permissions
+- [x] Task 2.7: Config Hot Reload
+- [x] Task 2.8: Phase 2 Testing
 
 ---
 

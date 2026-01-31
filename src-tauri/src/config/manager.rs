@@ -78,6 +78,70 @@ pub struct PermissionConfig {
     pub external_directory: Option<HashMap<String, Action>>,
 }
 
+impl PermissionConfig {
+    /// Check if a path is allowed to be accessed
+    pub fn check_path_access(&self, path: &Path, workspace_root: &Path) -> Action {
+        // Resolve paths to handle .. and symlinks
+        let resolved_path = fs::canonicalize(path).unwrap_or_else(|_| {
+            // Simple normalization if file doesn't exist
+            let mut ret = PathBuf::new();
+            for component in path.components() {
+                match component {
+                    std::path::Component::CurDir => {}
+                    std::path::Component::ParentDir => {
+                        ret.pop();
+                    }
+                    _ => ret.push(component),
+                }
+            }
+            ret
+        });
+
+        let resolved_root =
+            fs::canonicalize(workspace_root).unwrap_or_else(|_| workspace_root.to_path_buf());
+
+        // 1. Check if inside workspace (Allow by default)
+        if resolved_path.starts_with(&resolved_root) {
+            return Action::Allow;
+        }
+
+        // 2. Check external directory rules
+        if let Some(ref rules) = self.external_directory {
+            let path_str = resolved_path.to_string_lossy();
+            let mut explicit_allow = false;
+
+            for (pattern, action) in rules {
+                // Handle home expansion in pattern
+                let expanded_pattern = if pattern.starts_with("~") {
+                    if let Some(home) = dirs::home_dir() {
+                        pattern.replacen("~", &home.to_string_lossy(), 1)
+                    } else {
+                        pattern.clone()
+                    }
+                } else {
+                    pattern.clone()
+                };
+
+                if let Ok(glob_pattern) = glob::Pattern::new(&expanded_pattern) {
+                    if glob_pattern.matches(&path_str) {
+                        match action {
+                            Action::Deny => return Action::Deny,
+                            Action::Allow => explicit_allow = true,
+                            Action::Ask => (),
+                        }
+                    }
+                }
+            }
+
+            if explicit_allow {
+                return Action::Allow;
+            }
+        }
+
+        Action::Deny
+    }
+}
+
 /// Agent configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AgentConfig {

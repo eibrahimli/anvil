@@ -5,14 +5,17 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 use ::glob::glob;
 use std::time::SystemTime;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 pub struct GlobTool {
     pub workspace_root: PathBuf,
+    pub permission_manager: Arc<Mutex<crate::config::PermissionConfig>>,
 }
 
 impl GlobTool {
-    pub fn new(workspace_root: PathBuf) -> Self {
-        Self { workspace_root }
+    pub fn new(workspace_root: PathBuf, permission_manager: Arc<Mutex<crate::config::PermissionConfig>>) -> Self {
+        Self { workspace_root, permission_manager }
     }
 }
 
@@ -59,18 +62,40 @@ impl Tool for GlobTool {
             .and_then(|v| v.as_str())
             .ok_or("Missing 'pattern' parameter")?;
 
-        let base_path = input.get("path")
-            .and_then(|v| v.as_str())
-            .map(|p| self.workspace_root.join(p))
-            .unwrap_or_else(|| self.workspace_root.clone());
+        let base_path = match input.get("path").and_then(|v| v.as_str()) {
+            Some(path_str) => {
+                // Expand ~
+                let expanded_str = if path_str.starts_with("~") {
+                    if let Some(home) = dirs::home_dir() {
+                        path_str.replacen("~", &home.to_string_lossy(), 1)
+                    } else {
+                        path_str.to_string()
+                    }
+                } else {
+                    path_str.to_string()
+                };
+                
+                if std::path::Path::new(&expanded_str).is_absolute() {
+                    PathBuf::from(expanded_str)
+                } else {
+                    self.workspace_root.join(expanded_str)
+                }
+            },
+            None => self.workspace_root.clone()
+        };
 
         let max_results = input.get("max_results")
             .and_then(|v| v.as_u64())
             .unwrap_or(1000) as usize;
 
-        // Security check: ensure base_path is within workspace
-        if !base_path.starts_with(&self.workspace_root) {
-            return Err("Access denied: Path is outside workspace".to_string());
+        // Security check: ensure base_path is within workspace or allowed external
+        let allowed_location = {
+            let config = self.permission_manager.lock().await;
+            config.check_path_access(&base_path, &self.workspace_root) == crate::config::Action::Allow
+        };
+
+        if !allowed_location {
+            return Err("Access denied: Path is outside workspace and not allowed by config".to_string());
         }
 
         // Build full glob pattern
@@ -159,7 +184,8 @@ mod tests {
         File::create(workspace.join("test2.rs")).unwrap();
         File::create(workspace.join("test.txt")).unwrap();
 
-        let tool = GlobTool::new(workspace.clone());
+        let permission_manager = std::sync::Arc::new(Mutex::new(crate::config::PermissionConfig::default()));
+        let tool = GlobTool::new(workspace.clone(), permission_manager);
         let input = json!({
             "pattern": "*.rs"
         });
@@ -180,7 +206,10 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let workspace = temp_dir.path().to_path_buf();
 
-        let tool = GlobTool::new(workspace.clone());
+        let config = crate::config::PermissionConfig::default();
+        let permission_manager = std::sync::Arc::new(Mutex::new(config));
+
+        let tool = GlobTool::new(workspace.clone(), permission_manager);
         // Use an absolute path outside the workspace to test security
         let outside_path = "/etc";
         let input = json!({
@@ -191,5 +220,49 @@ mod tests {
         let result = tool.execute(input).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Access denied"));
+    }
+
+    #[tokio::test]
+    async fn test_glob_external_access() {
+        let temp_dir = TempDir::new().unwrap();
+        let workspace = temp_dir.path().join("workspace");
+        std::fs::create_dir(&workspace).unwrap();
+        
+        let external = temp_dir.path().join("external");
+        std::fs::create_dir(&external).unwrap();
+        File::create(external.join("external.txt")).unwrap();
+
+        // Setup permission config with ALLOW rule for external dir
+        let mut config = crate::config::PermissionConfig::default();
+        let mut external_rules = std::collections::HashMap::new();
+        // Allow the directory itself (required for base_path check)
+        external_rules.insert(external.to_string_lossy().to_string(), crate::config::Action::Allow);
+        // Also allow contents (optional for base_path check but good for completeness)
+        let pattern = external.join("*").to_string_lossy().to_string();
+        external_rules.insert(pattern, crate::config::Action::Allow);
+        config.external_directory = Some(external_rules);
+        
+        let permission_manager = std::sync::Arc::new(Mutex::new(config));
+        
+        let tool = GlobTool::new(workspace.clone(), permission_manager);
+        
+        // Try to access external path
+        let input = json!({
+            "pattern": "*.txt",
+            "path": external.to_string_lossy().to_string()
+        });
+        
+        let result = tool.execute(input).await;
+        
+        // Verify it succeeded
+        assert!(result.is_ok(), "Should allow access to configured external directory");
+        let matches = result.unwrap().get("matches").unwrap().as_array().unwrap().clone();
+        assert_eq!(matches.len(), 1);
+        let path = matches[0].get("path").unwrap().as_str().unwrap();
+        
+        // Since the file is outside the workspace, strip_prefix(&workspace) fails,
+        // so it returns the absolute path.
+        assert!(std::path::Path::new(path).is_absolute(), "Expected absolute path for external file");
+        assert!(path.ends_with("external.txt"));
     }
 }

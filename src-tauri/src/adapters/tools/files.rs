@@ -25,11 +25,12 @@ struct ConfirmationRequest {
 
 pub struct ReadFileTool {
     pub workspace_root: PathBuf,
+    pub permission_manager: Arc<tokio::sync::Mutex<crate::config::PermissionConfig>>,
 }
 
 impl ReadFileTool {
-    pub fn new(workspace_root: PathBuf) -> Self {
-        Self { workspace_root }
+    pub fn new(workspace_root: PathBuf, permission_manager: Arc<tokio::sync::Mutex<crate::config::PermissionConfig>>) -> Self {
+        Self { workspace_root, permission_manager }
     }
 }
 
@@ -61,11 +62,42 @@ impl Tool for ReadFileTool {
             .and_then(|v| v.as_str())
             .ok_or("Missing 'path' parameter")?;
 
-        let path = self.workspace_root.join(path_str);
+        // Expand ~ to home directory
+        let expanded_path_str = if path_str.starts_with("~") {
+            if let Some(home) = dirs::home_dir() {
+                path_str.replacen("~", &home.to_string_lossy(), 1)
+            } else {
+                path_str.to_string()
+            }
+        } else {
+            path_str.to_string()
+        };
 
-        // Simple sandbox check
-        if !path.starts_with(&self.workspace_root) {
-            return Err("Access denied: Path is outside workspace".to_string());
+        // Construct target path (handle absolute vs relative)
+        let path = if std::path::Path::new(&expanded_path_str).is_absolute() {
+            PathBuf::from(expanded_path_str)
+        } else {
+            self.workspace_root.join(expanded_path_str)
+        };
+
+        // Check if path is allowed (Workspace OR External)
+        let allowed_location = {
+            let config = self.permission_manager.lock().await;
+            config.check_path_access(&path, &self.workspace_root) == crate::config::Action::Allow
+        };
+        
+        if !allowed_location {
+            return Err("Access denied: Path is outside workspace and not allowed by config".to_string());
+        }
+
+        // Check if specific file is allowed (e.g. .env protection)
+        let allowed_file = {
+            let config = self.permission_manager.lock().await;
+            config.read.evaluate(path_str) == crate::config::Action::Allow
+        };
+        
+        if !allowed_file {
+             return Err("Access denied: Permission denied for this file type".to_string());
         }
 
         match fs::read_to_string(path).await {
@@ -133,14 +165,36 @@ impl Tool for WriteFileTool {
             .and_then(|v| v.as_str())
             .ok_or("Missing 'path' parameter")?;
         
+        // Expand ~ to home directory
+        let expanded_path_str = if path_str.starts_with("~") {
+            if let Some(home) = dirs::home_dir() {
+                path_str.replacen("~", &home.to_string_lossy(), 1)
+            } else {
+                path_str.to_string()
+            }
+        } else {
+            path_str.to_string()
+        };
+
         let content = input.get("content")
             .and_then(|v| v.as_str())
             .ok_or("Missing 'content' parameter")?;
 
-        let path = self.workspace_root.join(path_str);
+        // Construct target path (handle absolute vs relative)
+        let path = if std::path::Path::new(&expanded_path_str).is_absolute() {
+            PathBuf::from(expanded_path_str)
+        } else {
+            self.workspace_root.join(expanded_path_str)
+        };
 
-        if !path.starts_with(&self.workspace_root) {
-            return Err("Access denied: Path is outside workspace".to_string());
+        // Check if path is allowed (Workspace OR External)
+        let allowed_location = {
+            let config = self.permission_manager.lock().await;
+            config.check_path_access(&path, &self.workspace_root) == crate::config::Action::Allow
+        };
+        
+        if !allowed_location {
+            return Err("Access denied: Path is outside workspace and not allowed by config".to_string());
         }
 
         // Ensure parent directory exists
@@ -283,14 +337,36 @@ impl Tool for EditFileTool {
             .and_then(|v| v.as_str())
             .ok_or("Missing 'path' parameter")?;
         
+        // Expand ~ to home directory
+        let expanded_path_str = if path_str.starts_with("~") {
+            if let Some(home) = dirs::home_dir() {
+                path_str.replacen("~", &home.to_string_lossy(), 1)
+            } else {
+                path_str.to_string()
+            }
+        } else {
+            path_str.to_string()
+        };
+
         let edits_val = input.get("edits")
             .and_then(|v| v.as_array())
             .ok_or("Missing 'edits' parameter")?;
 
-        let path = self.workspace_root.join(path_str);
+        // Construct target path (handle absolute vs relative)
+        let path = if std::path::Path::new(&expanded_path_str).is_absolute() {
+            PathBuf::from(expanded_path_str)
+        } else {
+            self.workspace_root.join(expanded_path_str)
+        };
 
-        if !path.starts_with(&self.workspace_root) {
-            return Err("Access denied: Path is outside workspace".to_string());
+        // Check if path is allowed (Workspace OR External)
+        let allowed_location = {
+            let config = self.permission_manager.lock().await;
+            config.check_path_access(&path, &self.workspace_root) == crate::config::Action::Allow
+        };
+        
+        if !allowed_location {
+            return Err("Access denied: Path is outside workspace and not allowed by config".to_string());
         }
 
         if !path.exists() {
