@@ -4,14 +4,17 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use tokio::fs;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 pub struct ListTool {
     pub workspace_root: PathBuf,
+    pub permission_manager: Arc<Mutex<crate::config::PermissionConfig>>,
 }
 
 impl ListTool {
-    pub fn new(workspace_root: PathBuf) -> Self {
-        Self { workspace_root }
+    pub fn new(workspace_root: PathBuf, permission_manager: Arc<Mutex<crate::config::PermissionConfig>>) -> Self {
+        Self { workspace_root, permission_manager }
     }
 }
 
@@ -68,6 +71,17 @@ impl Tool for ListTool {
             .and_then(|v| v.as_str())
             .unwrap_or(".");
 
+        // Expand ~ to home directory
+        let expanded_path_str = if rel_path.starts_with("~") {
+            if let Some(home) = dirs::home_dir() {
+                rel_path.replacen("~", &home.to_string_lossy(), 1)
+            } else {
+                rel_path.to_string()
+            }
+        } else {
+            rel_path.to_string()
+        };
+
         let depth = input.get("depth")
             .and_then(|v| v.as_u64())
             .unwrap_or(1);
@@ -80,11 +94,21 @@ impl Tool for ListTool {
             .and_then(|v| v.as_str())
             .unwrap_or("all");
 
-        let target_path = self.workspace_root.join(rel_path);
+        // Construct target path (handle absolute vs relative)
+        let target_path = if std::path::Path::new(&expanded_path_str).is_absolute() {
+            PathBuf::from(expanded_path_str)
+        } else {
+            self.workspace_root.join(expanded_path_str)
+        };
 
-        // Security check: ensure target is within workspace
-        if !target_path.starts_with(&self.workspace_root) {
-            return Err("Access denied: Path is outside workspace".to_string());
+        // Security check: ensure target is within workspace or allowed external
+        let allowed_location = {
+            let config = self.permission_manager.lock().await;
+            config.check_path_access(&target_path, &self.workspace_root) == crate::config::Action::Allow
+        };
+
+        if !allowed_location {
+            return Err("Access denied: Path is outside workspace and not allowed by config".to_string());
         }
 
         // Check if path exists and is a directory
@@ -235,7 +259,8 @@ mod tests {
         File::create(workspace.join("file2.txt")).unwrap();
         std::fs::create_dir(workspace.join("subdir")).unwrap();
 
-        let tool = ListTool::new(workspace.clone());
+        let permission_manager = std::sync::Arc::new(Mutex::new(crate::config::PermissionConfig::default()));
+        let tool = ListTool::new(workspace.clone(), permission_manager);
         let input = json!({
             "path": ".",
             "depth": 1
@@ -262,7 +287,8 @@ mod tests {
         File::create(workspace.join("file.rs")).unwrap();
         std::fs::create_dir(workspace.join("dir")).unwrap();
 
-        let tool = ListTool::new(workspace.clone());
+        let permission_manager = std::sync::Arc::new(Mutex::new(crate::config::PermissionConfig::default()));
+        let tool = ListTool::new(workspace.clone(), permission_manager);
         
         // Filter files only
         let input = json!({
@@ -288,7 +314,8 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let workspace = temp_dir.path().to_path_buf();
 
-        let tool = ListTool::new(workspace.clone());
+        let permission_manager = std::sync::Arc::new(Mutex::new(crate::config::PermissionConfig::default()));
+        let tool = ListTool::new(workspace.clone(), permission_manager);
         // Use an absolute path outside the workspace to test security
         let outside_path = "/etc";
         let input = json!({

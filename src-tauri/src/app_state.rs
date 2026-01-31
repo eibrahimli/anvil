@@ -19,6 +19,7 @@ pub struct AppState {
     >,
     pub storage: Arc<Mutex<Option<Storage>>>,
     pub orchestrator: tokio::sync::Mutex<Option<Orchestrator>>,
+    pub config_watchers: Arc<std::sync::Mutex<std::collections::HashSet<std::path::PathBuf>>>,
 }
 
 impl AppState {
@@ -29,6 +30,7 @@ impl AppState {
             pending_confirmations: Arc::new(Mutex::new(HashMap::new())),
             storage: Arc::new(Mutex::new(None)),
             orchestrator: tokio::sync::Mutex::new(None),
+            config_watchers: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
         }
     }
 
