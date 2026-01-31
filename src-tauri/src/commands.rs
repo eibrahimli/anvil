@@ -7,7 +7,6 @@ use crate::adapters::tools::{files::ReadFileTool, files::WriteFileTool, bash::Ba
 use crate::domain::agent::Agent;
 use crate::domain::models::{AgentSession, AgentPermissions, ModelId, AgentMode};
 use crate::domain::ports::ModelAdapter;
-use crate::storage;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -29,10 +28,10 @@ fn read_dir_recursive(path: &std::path::Path) -> Vec<FileNode> {
     if let Ok(entries) = std::fs::read_dir(path) {
         for entry in entries.flatten() {
             let path = entry.path();
-            let name = entry.file_name().to_string_lossy();
+            let name = entry.file_name().to_string_lossy().to_string();
             let is_dir = path.is_dir();
             let kind = if is_dir { "directory" } else { "file" }.to_string();
-            
+
             if name.starts_with('.') || name == "node_modules" || name == "target" {
                 continue;
             }
@@ -77,9 +76,10 @@ pub async fn get_file_tree(path: String) -> Result<Vec<FileNode>, String> {
         return Err("Path does not exist".to_string());
     }
     
-    tokio::task::spawn_blocking(move || {
-        Ok(read_dir_recursive(&root))
-    }).await.map_err(|e| e.to_string())
+    let result = tokio::task::spawn_blocking(move || {
+        read_dir_recursive(&root)
+    }).await.map_err(|e| e.to_string())?;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -337,19 +337,15 @@ pub async fn replay_session(
     let api_key = api_key.unwrap_or_default();
     let model_id_value = model_id.unwrap_or_else(|| original_session.model.0.clone());
     
-    let provider = if model_id_value.starts_with("llama") 
-        || model_id_value.starts_with("mistral") 
-        || model_id_value.starts_with("codellama") 
+    let provider = if model_id_value.starts_with("llama")
+        || model_id_value.starts_with("mistral")
+        || model_id_value.starts_with("codellama")
         || model_id_value.starts_with("deepseek") {
         "ollama".to_string()
-    } else if let Some(m_id) = &model_id_value {
-        if m_id.starts_with("gemini") {
-            "gemini".to_string()
-        } else if m_id.starts_with("claude") {
-            "anthropic".to_string()
-        } else {
-            "openai".to_string()
-        }
+    } else if model_id_value.starts_with("gemini") {
+        "gemini".to_string()
+    } else if model_id_value.starts_with("claude") {
+        "anthropic".to_string()
     } else {
         "openai".to_string()
     };
@@ -363,10 +359,10 @@ pub async fn replay_session(
     };
 
     let tools = vec![
-        Arc::new(ReadFileTool::new(path.clone())) as Arc<dyn crate::domain::ports::Tool>>,
+        Arc::new(ReadFileTool::new(path.clone())) as Arc<dyn crate::domain::ports::Tool>,
         Arc::new(WriteFileTool::new(
-            path.clone(), 
-            app.clone(), 
+            path.clone(),
+            app.clone(),
             state.pending_confirmations.clone()
         )),
         Arc::new(BashTool::new(

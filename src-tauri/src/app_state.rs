@@ -21,7 +21,6 @@ impl AppState {
             storage: Arc::new(Mutex::new(None)),
         }
     }
-}
 
     pub fn init_storage(&self, db_path: &str) -> Result<(), String> {
         let mut storage_guard = self.storage.lock().map_err(|e| e.to_string())?;

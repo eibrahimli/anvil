@@ -30,13 +30,13 @@ export function AppShell({ children }: AppShellProps) {
     };
 
     return (
-        <div 
+        <div
             data-theme={theme}
             className={clsx(
                 "h-screen w-screen flex overflow-hidden transition-colors duration-300",
                 "bg-[var(--bg-base)] text-[var(--text-primary)]"
             )}
-            style={{ 
+            style={{
                 fontFamily: fontFamily,
                 fontSize: `${fontSize}px`
             }}
@@ -45,21 +45,14 @@ export function AppShell({ children }: AppShellProps) {
             <div className="flex-1 flex flex-col min-w-0 bg-transparent overflow-hidden">
                 {children}
             </div>
-            
-            <div>
-                <div className={clsx(
-                    "h-screen w-screen flex overflow-hidden transition-colors duration-300",
-                    "bg-[var(--bg-base)] text-[var(--text-primary)]"
-                )}>
-                    {isSettingsOpen && <SettingsModal />}
-                    {isHistoryOpen && (
-                        <HistoryModal 
-                            onClose={() => setHistoryOpen(false)}
-                            onReplay={handleReplay}
-                        />
-                    )}
-                </div>
-            </div>
+
+            {isSettingsOpen && <SettingsModal />}
+            {isHistoryOpen && (
+                <HistoryModal
+                    onClose={() => setHistoryOpen(false)}
+                    onReplay={handleReplay}
+                />
+            )}
         </div>
     );
 }

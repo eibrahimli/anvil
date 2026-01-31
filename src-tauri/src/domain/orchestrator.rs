@@ -51,7 +51,7 @@ impl Orchestrator {
         }
     }
 
-    pub fn add_agent(
+    pub async fn add_agent(
         &mut self,
         agent_id: Uuid,
         role: AgentRole,
@@ -62,7 +62,7 @@ impl Orchestrator {
         let session = crate::domain::models::AgentSession {
             id: agent_id,
             workspace_path: {
-                let ctx = self.context.lock();
+                let ctx = self.context.lock().await;
                 ctx.workspace_path.clone()
             },
             model: ModelId("default".to_string()),
@@ -78,7 +78,7 @@ impl Orchestrator {
         Ok(())
     }
 
-    pub fn create_task(&self, description: String) -> Uuid {
+    pub async fn create_task(&self, description: String) -> Uuid {
         let task_id = Uuid::new_v4();
         let task = Task {
             id: task_id,
@@ -90,7 +90,8 @@ impl Orchestrator {
             created_at: chrono::Utc::now().to_rfc3339(),
         };
 
-        self.context.lock().task_queue.push_back(task);
+        let mut ctx = self.context.lock().await;
+        ctx.task_queue.push_back(task);
         task_id
     }
 
@@ -98,7 +99,7 @@ impl Orchestrator {
         let mut results = Vec::new();
 
         loop {
-            let task_opt = {
+            let task_opt: Option<(Uuid, String)> = {
                 let ctx = self.context.lock().await;
                 let ready_task = ctx.task_queue.iter().find(|task| {
                     task.status == TaskStatus::Pending
@@ -106,37 +107,39 @@ impl Orchestrator {
                             ctx.task_queue.iter().any(|t| t.id == *dep_id && t.status == TaskStatus::Completed)
                         })
                 });
-
-                ready_task.map(|task| {
-                    let task_id = task.id;
-                    let mut ctx = self.context.lock().await;
-                    if let Some(pos) = ctx.task_queue.iter().position(|t| t.id == task_id) {
-                        ctx.task_queue[pos].status = TaskStatus::InProgress;
-                        ctx.task_queue[pos].assigned_to = self.find_best_agent_for_task(&task);
-                        ctx.active_task = Some(task_id);
-                    }
-                    (task_id, task.description.clone())
-                })
+                
+                ready_task.map(|task| (task.id, task.description.clone()))
             };
 
             match task_opt {
                 Some((task_id, description)) => {
+                    {
+                        let mut ctx = self.context.lock().await;
+                        if let Some(pos) = ctx.task_queue.iter().position(|t| t.id == task_id) {
+                            ctx.task_queue[pos].status = TaskStatus::InProgress;
+                            ctx.task_queue[pos].assigned_to = self.find_best_agent_for_task(&ctx.task_queue[pos]);
+                            ctx.active_task = Some(task_id);
+                        }
+                    }
+                    
                     let result = self.execute_task(task_id, &description).await;
 
-                    let mut ctx = self.context.lock().await;
-                    if let Some(pos) = ctx.task_queue.iter().position(|t| t.id == task_id) {
-                        ctx.task_queue[pos].status = match result.as_ref() {
-                            Ok(_) => TaskStatus::Completed,
-                            Err(_) => TaskStatus::Failed,
-                        };
-                        ctx.task_queue[pos].result = Some(result.clone().unwrap_or_else(|e| e.clone()));
-                        ctx.agent_results.entry(task_id).or_insert_with(Vec::new).push(Message {
-                            role: Role::Assistant,
-                            content: result.clone().ok(),
-                            tool_calls: None,
-                            tool_call_id: None,
-                        });
-                        ctx.active_task = None;
+                    {
+                        let mut ctx = self.context.lock().await;
+                        if let Some(pos) = ctx.task_queue.iter().position(|t| t.id == task_id) {
+                            ctx.task_queue[pos].status = match result.as_ref() {
+                                Ok(_) => TaskStatus::Completed,
+                                Err(_) => TaskStatus::Failed,
+                            };
+                            ctx.task_queue[pos].result = Some(result.clone().unwrap_or_else(|e| e.clone()));
+                            ctx.agent_results.entry(task_id).or_insert_with(Vec::new).push(Message {
+                                role: Role::Assistant,
+                                content: result.clone().ok(),
+                                tool_calls: None,
+                                tool_call_id: None,
+                            });
+                            ctx.active_task = None;
+                        }
                     }
 
                     results.push(result.unwrap_or_else(|e| e));
@@ -174,13 +177,13 @@ impl Orchestrator {
         }
     }
 
-    pub fn get_agent_results(&self, task_id: Uuid) -> Option<Vec<Message>> {
-        let ctx = self.context.lock();
+    pub async fn get_agent_results(&self, task_id: Uuid) -> Option<Vec<Message>> {
+        let ctx = self.context.lock().await;
         ctx.agent_results.get(&task_id).cloned()
     }
 
-    pub fn get_task_status(&self, task_id: Uuid) -> Option<TaskStatus> {
-        let ctx = self.context.lock();
+    pub async fn get_task_status(&self, task_id: Uuid) -> Option<TaskStatus> {
+        let ctx = self.context.lock().await;
         ctx.task_queue.iter().find(|t| t.id == task_id).map(|t| t.status.clone())
     }
 
