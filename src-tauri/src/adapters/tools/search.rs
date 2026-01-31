@@ -2,7 +2,7 @@ use crate::domain::ports::Tool;
 use crate::domain::models::ToolResult;
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use ignore::WalkBuilder;
 use grep::searcher::Searcher;
 use grep::searcher::sinks::UTF8;

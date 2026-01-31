@@ -8,61 +8,13 @@ use crate::domain::agent::Agent;
 use crate::domain::orchestrator::{Orchestrator, Task, TaskStatus};
 use crate::domain::models::{AgentSession, AgentPermissions, ModelId, AgentMode, AgentRole};
 use crate::domain::ports::ModelAdapter;
-use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{State, Emitter};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 use serde_json::json;
-
-#[derive(Serialize)]
-pub struct FileNode {
-    name: String,
-    path: String,
-    kind: String,
-    children: Option<Vec<FileNode>>,
-}
-
-fn read_dir_recursive(path: &std::path::Path) -> Vec<FileNode> {
-    let mut nodes = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(path) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = entry.file_name().to_string_lossy().to_string();
-            let is_dir = path.is_dir();
-            let kind = if is_dir { "directory" } else { "file" }.to_string();
-
-            if name.starts_with('.') || name == "node_modules" || name == "target" {
-                continue;
-            }
-
-            let children = if is_dir {
-                Some(read_dir_recursive(&path))
-            } else {
-                None
-            };
-
-            nodes.push(FileNode {
-                name,
-                path: path.to_string_lossy().to_string(),
-                kind,
-                children,
-            });
-        }
-    }
-    nodes.sort_by(|a, b| {
-        if a.kind == b.kind {
-            a.name.cmp(&b.name)
-        } else if a.kind == "directory" {
-            std::cmp::Ordering::Less
-        } else {
-            std::cmp::Ordering::Greater
-        }
-    });
-    nodes
-}
 
 #[tauri::command]
 pub fn get_cwd() -> Result<String, String> {
@@ -79,7 +31,7 @@ pub async fn read_file(path: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn open_file_in_editor(
     app: tauri::AppHandle,
-    state: State<'_, AppState>,
+    _state: State<'_, AppState>,
     path: String,
 ) -> Result<String, String> {
     let content = tokio::fs::read_to_string(&path).await.map_err(|e| e.to_string())?;

@@ -63,7 +63,7 @@ impl Orchestrator {
     pub async fn add_agent(
         &self,
         agent_id: Uuid,
-        role: AgentRole,
+        _role: AgentRole,
         model: Arc<dyn ModelAdapter>,
         tools: Vec<Arc<dyn crate::domain::ports::Tool>>,
         initial_mode: crate::domain::models::AgentMode,
