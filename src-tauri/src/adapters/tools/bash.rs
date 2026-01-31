@@ -14,27 +14,35 @@ use serde::Serialize;
 #[derive(Serialize, Clone)]
 struct ShellConfirmationRequest {
     id: String,
+    session_id: String,
     #[serde(rename = "type")]
     type_: String,
     command: String,
+    suggested_pattern: String,
 }
 
 pub struct BashTool {
     pub workspace_root: PathBuf,
+    pub session_id: String,
     pub app: AppHandle,
-    pub pending_confirmations: Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
+    pub pending_confirmations: Arc<Mutex<HashMap<String, oneshot::Sender<crate::domain::models::ConfirmationResponse>>>>,
+    pub permission_manager: Arc<tokio::sync::Mutex<crate::config::PermissionConfig>>,
 }
 
 impl BashTool {
     pub fn new(
         workspace_root: PathBuf,
+        session_id: String,
         app: AppHandle,
-        pending_confirmations: Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
+        pending_confirmations: Arc<Mutex<HashMap<String, oneshot::Sender<crate::domain::models::ConfirmationResponse>>>>,
+        permission_manager: Arc<tokio::sync::Mutex<crate::config::PermissionConfig>>,
     ) -> Self {
         Self { 
             workspace_root,
+            session_id,
             app,
             pending_confirmations,
+            permission_manager,
         }
     }
 }
@@ -67,31 +75,58 @@ impl Tool for BashTool {
             .and_then(|v| v.as_str())
             .ok_or("Missing 'command' parameter")?;
 
-        // --- Confirmation Logic ---
-        let request_id = Uuid::new_v4().to_string();
-        let (tx, rx) = oneshot::channel();
-
-        {
-            let mut map = self.pending_confirmations.lock().unwrap();
-            map.insert(request_id.clone(), tx);
-        }
-
-        let event = ShellConfirmationRequest {
-            id: request_id.clone(),
-            type_: "shell".to_string(),
-            command: command_str.to_string(),
+        // Check if allowed by permission manager
+        let allowed = {
+            let config = self.permission_manager.lock().await;
+            config.bash.evaluate(command_str) == crate::config::Action::Allow
         };
 
-        self.app.emit("request-confirmation", &event)
-            .map_err(|e| format!("Failed to emit confirmation event: {}", e))?;
-
-        // Wait for user response
-        let allowed = rx.await.map_err(|_| "Confirmation channel closed without response".to_string())?;
-
         if !allowed {
-            return Err("User denied shell command execution.".to_string());
+            // --- Confirmation Logic ---
+            let request_id = Uuid::new_v4().to_string();
+            println!("BashTool: Requesting confirmation for id={} session={}", request_id, self.session_id);
+            let (tx, rx) = oneshot::channel();
+
+            {
+                let mut map = self.pending_confirmations.lock().unwrap();
+                map.insert(request_id.clone(), tx);
+            }
+
+            let suggested_pattern = if command_str.contains(' ') {
+                format!("{}*", command_str.split(' ').next().unwrap_or(command_str))
+            } else {
+                command_str.to_string()
+            };
+
+            let event = ShellConfirmationRequest {
+                id: request_id.clone(),
+                session_id: self.session_id.clone(),
+                type_: "shell".to_string(),
+                command: command_str.to_string(),
+                suggested_pattern,
+            };
+
+            self.app.emit("request-confirmation", &event)
+                .map_err(|e| format!("Failed to emit confirmation event: {}", e))?;
+
+            // Wait for user response
+            let response = rx.await.map_err(|_| "Confirmation channel closed without response".to_string())?;
+
+            if !response.allowed {
+                return Err("User denied shell command execution.".to_string());
+            }
+
+            if response.always {
+                if let Some(pattern) = response.pattern {
+                    let mut config = self.permission_manager.lock().await;
+                    config.bash.rules.push(crate::config::manager::PermissionRule {
+                        pattern,
+                        action: crate::config::Action::Allow,
+                    });
+                }
+            }
+            // --------------------------
         }
-        // --------------------------
 
         // Use sh -c to execute the command string
         let output = Command::new("sh")
