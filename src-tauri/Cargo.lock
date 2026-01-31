@@ -4466,6 +4466,7 @@ dependencies = [
  "grep",
  "html2text",
  "ignore",
+ "once_cell",
  "patch",
  "portable-pty",
  "regex",
