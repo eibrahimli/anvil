@@ -3,6 +3,7 @@ import { useSettingsStore } from '../../stores/settings';
 import { useUIStore } from '../../stores/ui';
 import { SettingsModal } from '../settings/SettingsModal';
 import { HistoryModal } from '../history/HistoryModal';
+import { OrchestratorPanel } from '../orchestrator/OrchestratorPanel';
 import { useStore } from '../../store';
 import { invoke } from '@tauri-apps/api/core';
 import clsx from 'clsx';
@@ -13,7 +14,7 @@ interface AppShellProps {
 
 export function AppShell({ children }: AppShellProps) {
     const { theme, fontFamily, fontSize } = useSettingsStore();
-    const { isSettingsOpen, isHistoryOpen, setHistoryOpen } = useUIStore();
+    const { isSettingsOpen, isHistoryOpen, setHistoryOpen, isOrchestratorOpen, setOrchestratorOpen } = useUIStore();
     const { setSessionId } = useStore();
 
     const handleReplay = async (sessionToReplayId: string) => {
@@ -42,7 +43,8 @@ export function AppShell({ children }: AppShellProps) {
             }}
         >
             <ActivityBar />
-            <div className="flex-1 flex flex-col min-w-0 bg-transparent overflow-hidden">
+            {/* Main content wrapper: Holds FileTree/Chat/Editor */}
+            <div className="flex-1 flex min-w-0 bg-transparent overflow-hidden">
                 {children}
             </div>
 
@@ -51,6 +53,11 @@ export function AppShell({ children }: AppShellProps) {
                 <HistoryModal
                     onClose={() => setHistoryOpen(false)}
                     onReplay={handleReplay}
+                />
+            )}
+            {isOrchestratorOpen && (
+                <OrchestratorPanel
+                    onClose={() => setOrchestratorOpen(false)}
                 />
             )}
         </div>

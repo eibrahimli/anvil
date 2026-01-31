@@ -1,9 +1,12 @@
 import { X, Plus, Users, Play, Trash2, RefreshCw, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { useOrchestratorStore, Agent, Task } from '../../stores/orchestrator';
 import { useUIStore } from '../../stores/ui';
+import { useProviderStore } from '../../stores/provider';
 import clsx from 'clsx';
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+
+import { useStore } from '../../store';
 
 interface OrchestratorPanelProps {
     onClose?: () => void;
@@ -13,9 +16,18 @@ export function OrchestratorPanel({ onClose }: OrchestratorPanelProps) {
     const storeAgents = useOrchestratorStore(state => state.agents);
     const storeTasks = useOrchestratorStore(state => state.tasks);
     const activeTaskId = useOrchestratorStore(state => state.activeTask);
-    const { addAgent, addTask, clearAgents, clearTasks } = useOrchestratorStore();
+    const { addAgent, addTask, clearAgents, clearTasks, initOrchestrator } = useOrchestratorStore();
     const { setOrchestratorOpen } = useUIStore();
+    const { activeModelId, activeProviderId, apiKeys } = useProviderStore();
+    const { workspacePath } = useStore();
     const [processing, setProcessing] = useState(false);
+
+    // Initialize backend orchestrator on mount
+    useState(() => {
+        if (workspacePath) {
+            initOrchestrator(workspacePath);
+        }
+    });
 
     const handleAddAgent = async () => {
         const role = prompt('Select agent role:', 'Coder\nReviewer\nPlanner\nDebugger\nGeneric');
@@ -23,18 +35,20 @@ export function OrchestratorPanel({ onClose }: OrchestratorPanelProps) {
 
         const normalizedRole = role.toLowerCase();
         const validRoles = ['coder', 'reviewer', 'planner', 'debugger', 'generic'];
-        
+
         if (!validRoles.includes(normalizedRole)) {
             alert('Invalid role. Please select one of: Coder, Reviewer, Planner, Debugger, Generic');
             return;
         }
 
+        const apiKey = apiKeys[activeProviderId] || '';
+
         await addAgent({
-            id: Math.random().toString(36).substring(7),
+            id: crypto.randomUUID(), // Valid UUID for backend
             role: normalizedRole.charAt(0).toUpperCase() + normalizedRole.slice(1) as Agent['role'],
-            modelId: 'gpt-4o',
-            providerId: 'openai'
-        });
+            modelId: activeModelId,
+            providerId: activeProviderId
+        }, apiKey, workspacePath || '.');
     };
 
     const handleProcessTasks = async () => {

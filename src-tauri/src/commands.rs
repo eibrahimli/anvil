@@ -3,64 +3,18 @@ use crate::adapters::openai::OpenAIAdapter;
 use crate::adapters::gemini::GeminiAdapter;
 use crate::adapters::anthropic::AnthropicAdapter;
 use crate::adapters::ollama::OllamaAdapter;
-use crate::adapters::tools::{files::ReadFileTool, files::WriteFileTool, bash::BashTool, git::GitTool};
+use crate::adapters::tools::{files::ReadFileTool, files::WriteFileTool, files::EditFileTool, bash::BashTool, git::GitTool, search::SearchTool, symbols::SymbolsTool, glob::GlobTool, list::ListTool};
 use crate::domain::agent::Agent;
-use crate::domain::models::{AgentSession, AgentPermissions, ModelId, AgentMode};
+use crate::domain::orchestrator::{Orchestrator, Task, TaskStatus};
+use crate::domain::models::{AgentSession, AgentPermissions, ModelId, AgentMode, AgentRole};
 use crate::domain::ports::ModelAdapter;
-use serde::Serialize;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{State, Emitter};
 use tokio::sync::Mutex;
 use uuid::Uuid;
-
-#[derive(Serialize)]
-pub struct FileNode {
-    name: String,
-    path: String,
-    kind: String,
-    children: Option<Vec<FileNode>>,
-}
-
-fn read_dir_recursive(path: &std::path::Path) -> Vec<FileNode> {
-    let mut nodes = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(path) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = entry.file_name().to_string_lossy().to_string();
-            let is_dir = path.is_dir();
-            let kind = if is_dir { "directory" } else { "file" }.to_string();
-
-            if name.starts_with('.') || name == "node_modules" || name == "target" {
-                continue;
-            }
-
-            let children = if is_dir {
-                Some(read_dir_recursive(&path))
-            } else {
-                None
-            };
-
-            nodes.push(FileNode {
-                name,
-                path: path.to_string_lossy().to_string(),
-                kind,
-                children,
-            });
-        }
-    }
-    nodes.sort_by(|a, b| {
-        if a.kind == b.kind {
-            a.name.cmp(&b.name)
-        } else if a.kind == "directory" {
-            std::cmp::Ordering::Less
-        } else {
-            std::cmp::Ordering::Greater
-        }
-    });
-    nodes
-}
+use serde_json::json;
 
 #[tauri::command]
 pub fn get_cwd() -> Result<String, String> {
@@ -70,22 +24,34 @@ pub fn get_cwd() -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn get_file_tree(path: String) -> Result<Vec<FileNode>, String> {
-    let root = PathBuf::from(path);
-    if !root.exists() {
-        return Err("Path does not exist".to_string());
-    }
-    
-    let result = tokio::task::spawn_blocking(move || {
-        read_dir_recursive(&root)
-    }).await.map_err(|e| e.to_string())?;
-    Ok(result)
-}
-
-#[tauri::command]
 pub async fn read_file(path: String) -> Result<String, String> {
     tokio::fs::read_to_string(path).await.map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn open_file_in_editor(
+    app: tauri::AppHandle,
+    _state: State<'_, AppState>,
+    path: String,
+) -> Result<String, String> {
+    let content = tokio::fs::read_to_string(&path).await.map_err(|e| e.to_string())?;
+
+    let reason = format!("Agent opened file.");
+    let line_start = 1; // Placeholder for now
+    let line_end = 1;
+
+    // Emit event to frontend so Editor can follow/open tab
+    let _ = app.emit("file-opened-by-agent", json!({
+        "path": path,
+        "reason": reason,
+        "line_start": line_start,
+        "line_end": line_end
+    }));
+
+    Ok(content)
+}
+
+ 
 
 #[tauri::command]
 pub async fn spawn_terminal(
@@ -142,8 +108,8 @@ pub async fn create_session(
     let tools = vec![
         Arc::new(ReadFileTool::new(path.clone())) as Arc<dyn crate::domain::ports::Tool>,
         Arc::new(WriteFileTool::new(
-            path.clone(), 
-            app.clone(), 
+            path.clone(),
+            app.clone(),
             state.pending_confirmations.clone()
         )),
         Arc::new(BashTool::new(
@@ -152,6 +118,15 @@ pub async fn create_session(
             state.pending_confirmations.clone()
         )),
         Arc::new(GitTool::new(path.clone())),
+        Arc::new(SearchTool::new(path.clone())),
+        Arc::new(EditFileTool::new(
+            path.clone(),
+            app.clone(),
+            state.pending_confirmations.clone()
+        )),
+        Arc::new(SymbolsTool::new(path.clone())),
+        Arc::new(GlobTool::new(path.clone())),
+        Arc::new(ListTool::new(path.clone())),
     ];
 
     let new_session = AgentSession {
@@ -206,10 +181,10 @@ pub async fn chat(
         } else {
             Arc::new(OpenAIAdapter::new(key))
         };
-        
+
         agent.update_model(adapter, ModelId(m_id));
     }
-    
+
     agent.step(Some(message)).await
 }
 
@@ -249,7 +224,7 @@ pub async fn stream_chat(
         } else {
             Arc::new(OpenAIAdapter::new(key))
         };
-        
+
         agent.update_model(adapter, ModelId(m_id));
     }
 
@@ -261,7 +236,7 @@ pub async fn stream_chat(
             let _ = app_handle.emit("chat-token", chunk);
         }
     });
-    
+
     agent.step_stream(Some(message), tx).await
 }
 
@@ -333,10 +308,10 @@ pub async fn replay_session(
 
     let uuid = Uuid::new_v4();
     let path = original_session.workspace_path.clone();
-    
+
     let api_key = api_key.unwrap_or_default();
     let model_id_value = model_id.unwrap_or_else(|| original_session.model.0.clone());
-    
+
     let provider = if model_id_value.starts_with("llama")
         || model_id_value.starts_with("mistral")
         || model_id_value.starts_with("codellama")
@@ -371,6 +346,15 @@ pub async fn replay_session(
             state.pending_confirmations.clone()
         )),
         Arc::new(GitTool::new(path.clone())),
+        Arc::new(SearchTool::new(path.clone())),
+        Arc::new(EditFileTool::new(
+            path.clone(),
+            app.clone(),
+            state.pending_confirmations.clone()
+        )),
+        Arc::new(SymbolsTool::new(path.clone())),
+        Arc::new(GlobTool::new(path.clone())),
+        Arc::new(ListTool::new(path.clone())),
     ];
 
     let new_session = AgentSession {
@@ -389,3 +373,130 @@ pub async fn replay_session(
 
     Ok(uuid.to_string())
 }
+
+#[tauri::command]
+pub async fn init_orchestrator(
+    state: State<'_, AppState>,
+    workspace_path: String,
+) -> Result<(), String> {
+    let mut orchestrator_guard: tokio::sync::MutexGuard<Option<Orchestrator>> = state.orchestrator.lock().await;
+    if orchestrator_guard.is_none() {
+        *orchestrator_guard = Some(Orchestrator::new(PathBuf::from(workspace_path)));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn add_agent_to_orchestrator(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    agent_id: String,
+    role: String,
+    model_id: String,
+    api_key: String,
+    provider: String,
+    workspace_path: String,
+) -> Result<(), String> {
+    let uuid = Uuid::parse_str(&agent_id).map_err(|_| "Invalid Agent UUID")?;
+    let role_enum = match role.to_lowercase().as_str() {
+        "coder" => AgentRole::Coder,
+        "reviewer" => AgentRole::Reviewer,
+        "planner" => AgentRole::Planner,
+        "debugger" => AgentRole::Debugger,
+        _ => AgentRole::Generic,
+    };
+
+    let orchestrator = {
+        let orchestrator_guard = state.orchestrator.lock().await;
+        orchestrator_guard.as_ref().ok_or("Orchestrator not initialized")?.clone()
+    };
+
+    let model: Arc<dyn ModelAdapter> = match provider.as_str() {
+        "openai" => Arc::new(OpenAIAdapter::new(api_key.clone())),
+        "gemini" => Arc::new(GeminiAdapter::new(api_key.clone(), model_id.clone())),
+        "anthropic" => Arc::new(AnthropicAdapter::new(api_key.clone(), model_id.clone())),
+        "ollama" => Arc::new(OllamaAdapter::new(None)),
+        _ => return Err(format!("Unsupported provider: {}", provider)),
+    };
+
+    let path = PathBuf::from(workspace_path);
+    let tools = vec![
+        Arc::new(ReadFileTool::new(path.clone())) as Arc<dyn crate::domain::ports::Tool>,
+        Arc::new(WriteFileTool::new(
+            path.clone(),
+            app.clone(),
+            state.pending_confirmations.clone()
+        )),
+        Arc::new(BashTool::new(
+            path.clone(),
+            app.clone(),
+            state.pending_confirmations.clone()
+        )),
+        Arc::new(GitTool::new(path.clone())),
+        Arc::new(SearchTool::new(path.clone())),
+        Arc::new(EditFileTool::new(
+            path.clone(),
+            app.clone(),
+            state.pending_confirmations.clone()
+        )),
+        Arc::new(SymbolsTool::new(path.clone())),
+        Arc::new(GlobTool::new(path.clone())),
+        Arc::new(ListTool::new(path.clone())),
+    ];
+
+    orchestrator.add_agent(uuid, role_enum, model, tools, AgentMode::Build).await
+}
+
+#[tauri::command]
+pub async fn create_task(
+    state: State<'_, AppState>,
+    description: String,
+) -> Result<String, String> {
+    let orchestrator = {
+        let orchestrator_guard = state.orchestrator.lock().await;
+        orchestrator_guard.as_ref().ok_or("Orchestrator not initialized")?.clone()
+    };
+
+    let task_id = orchestrator.create_task(description).await;
+    Ok(task_id.to_string())
+}
+
+#[tauri::command]
+pub async fn process_tasks(
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let orchestrator = {
+        let orchestrator_guard = state.orchestrator.lock().await;
+        orchestrator_guard.as_ref().ok_or("Orchestrator not initialized")?.clone()
+    };
+
+    orchestrator.process_tasks().await
+}
+
+#[tauri::command]
+pub async fn get_all_tasks(
+    state: State<'_, AppState>,
+) -> Result<Vec<Task>, String> {
+    let orchestrator = {
+        let orchestrator_guard = state.orchestrator.lock().await;
+        orchestrator_guard.as_ref().ok_or("Orchestrator not initialized")?.clone()
+    };
+
+    Ok(orchestrator.get_all_tasks().await)
+}
+
+#[tauri::command]
+pub async fn get_task_status(
+    state: State<'_, AppState>,
+    task_id: String,
+) -> Result<TaskStatus, String> {
+    let uuid = Uuid::parse_str(&task_id).map_err(|_| "Invalid Task UUID")?;
+    let orchestrator = {
+        let orchestrator_guard = state.orchestrator.lock().await;
+        orchestrator_guard.as_ref().ok_or("Orchestrator not initialized")?.clone()
+    };
+
+    let status = orchestrator.get_task_status(uuid).await;
+    status.ok_or("Task not found".to_string())
+}
+

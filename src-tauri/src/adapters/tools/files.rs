@@ -181,3 +181,141 @@ impl Tool for WriteFileTool {
         }
     }
 }
+
+pub struct EditFileTool {
+    pub workspace_root: PathBuf,
+    pub app: AppHandle,
+    pub pending_confirmations: Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
+}
+
+impl EditFileTool {
+    pub fn new(
+        workspace_root: PathBuf,
+        app: AppHandle,
+        pending_confirmations: Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
+    ) -> Self {
+        Self {
+            workspace_root,
+            app,
+            pending_confirmations,
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for EditFileTool {
+    fn name(&self) -> &'static str {
+        "edit_file"
+    }
+
+    fn schema(&self) -> Value {
+        json!({
+            "name": "edit_file",
+            "description": "Apply partial edits to a file using search/replace blocks. This is more efficient than overwriting the whole file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file relative to workspace root"
+                    },
+                    "edits": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "old_text": {
+                                    "type": "string",
+                                    "description": "The exact text to find in the file"
+                                },
+                                "new_text": {
+                                    "type": "string",
+                                    "description": "The text to replace it with"
+                                }
+                            },
+                            "required": ["old_text", "new_text"]
+                        },
+                        "description": "A list of search/replace blocks"
+                    }
+                },
+                "required": ["path", "edits"]
+            }
+        })
+    }
+
+    async fn execute(&self, input: Value) -> ToolResult {
+        let path_str = input.get("path")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing 'path' parameter")?;
+        
+        let edits_val = input.get("edits")
+            .and_then(|v| v.as_array())
+            .ok_or("Missing 'edits' parameter")?;
+
+        let path = self.workspace_root.join(path_str);
+
+        if !path.starts_with(&self.workspace_root) {
+            return Err("Access denied: Path is outside workspace".to_string());
+        }
+
+        if !path.exists() {
+            return Err(format!("File does not exist: {}", path_str));
+        }
+
+        let original_content = fs::read_to_string(&path).await
+            .map_err(|e| format!("Failed to read file: {}", e))?;
+        
+        let mut new_content = original_content.clone();
+
+        for edit in edits_val {
+            let old_text = edit.get("old_text").and_then(|v| v.as_str())
+                .ok_or("Invalid edit block: missing old_text")?;
+            let replace_text = edit.get("new_text").and_then(|v| v.as_str())
+                .ok_or("Invalid edit block: missing new_text")?;
+
+            if !new_content.contains(old_text) {
+                return Err(format!("Could not find exact match for search block in {}. Ensure old_text matches the file content exactly, including whitespace.", path_str));
+            }
+
+            // Check if it's unique
+            if new_content.matches(old_text).count() > 1 {
+                return Err(format!("Search block is not unique in {}. Provide more context in old_text.", path_str));
+            }
+
+            new_content = new_content.replace(old_text, replace_text);
+        }
+
+        // --- Confirmation Logic ---
+        let request_id = Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+
+        {
+            let mut map = self.pending_confirmations.lock().unwrap();
+            map.insert(request_id.clone(), tx);
+        }
+
+        let event = ConfirmationRequest {
+            id: request_id.clone(),
+            type_: "diff".to_string(),
+            file_path: path_str.to_string(),
+            old_content: Some(original_content),
+            new_content: new_content.clone(),
+        };
+
+        self.app.emit("request-confirmation", &event)
+            .map_err(|e| format!("Failed to emit confirmation event: {}", e))?;
+
+        let allowed = rx.await.map_err(|_| "Confirmation channel closed without response".to_string())?;
+
+        if !allowed {
+            return Err("User denied file edit.".to_string());
+        }
+        // --------------------------
+
+        match fs::write(path, new_content).await {
+            Ok(_) => Ok(json!({ "status": "success", "message": format!("Applied {} edit(s) to {}", edits_val.len(), path_str) })),
+            Err(e) => Err(format!("Failed to write file: {}", e)),
+        }
+    }
+}
+

@@ -76,3 +76,34 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-secondary);
 }
+
+/* --- Responsiveness Overrides --- */
+
+/* Small screens / Mobile (Max 900px) */
+@media (max-width: 900px) {
+    /* Hide Activity Bar in favor of dynamic toggles if needed, but keep it for now */
+    .activity-bar {
+        /* If we switch to stacked layout, this will need rethinking */
+    }
+}
+
+/* Laptop/Tablet Screens (Max 1199px) - Collapse Explorer to Icons, Make Editor/Chat Split */
+@media (max-width: 1199px) {
+    /* Hide SidePanel (Explorer/Search/Providers) if active tab is not active */
+    .side-panel-container {
+        /* This is handled by SidePanel.tsx logic now, but for safety */
+    }
+}
+
+/* Wide Desktop Screens (Min 1600px) - Give more space to Editor */
+@media (min-width: 1600px) {
+    /* Editor will now prefer larger width */
+}
+
+/* General layout container adjustment */
+.main-content-area {
+    /* Max width on Chat side for better reading experience on ultra-wide monitors */
+    max-width: 1000px; 
+    margin-left: auto;
+    margin-right: auto;
+}

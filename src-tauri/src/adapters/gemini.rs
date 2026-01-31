@@ -115,7 +115,8 @@ enum GeminiPartResponse {
         text: String 
     },
     FunctionCall { 
-        functionCall: GeminiFunctionCall,
+        #[serde(rename = "functionCall")]
+        function_call: GeminiFunctionCall,
         #[serde(rename = "thoughtSignature")]
         thought_signature: Option<String>
     },
@@ -261,11 +262,11 @@ impl ModelAdapter for GeminiAdapter {
                                             GeminiPartResponse::Text { text } => {
                                                 final_text.push_str(&text);
                                             }
-                                            GeminiPartResponse::FunctionCall { functionCall, thought_signature } => {
+                                            GeminiPartResponse::FunctionCall { function_call, thought_signature } => {
                                                 final_tool_calls.push(ToolCall {
-                                                    id: functionCall.name.clone(),
-                                                    name: functionCall.name.clone(),
-                                                    arguments: serde_json::to_string(&functionCall.args).unwrap_or_default(),
+                                                    id: function_call.name.clone(),
+                                                    name: function_call.name.clone(),
+                                                    arguments: serde_json::to_string(&function_call.args).unwrap_or_default(),
                                                     signature: thought_signature.clone(),
                                                 });
                                             }

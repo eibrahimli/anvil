@@ -12,7 +12,8 @@ interface UIState {
     isSettingsOpen: boolean;
     isEditorOpen: boolean;
     isHistoryOpen: boolean;
-    
+    isOrchestratorOpen: boolean;
+
     setActiveSidebarTab: (tab: SidebarTab) => void;
     setActiveMode: (mode: AgentMode) => void;
     setTemperature: (temp: Temperature) => void;
@@ -20,6 +21,7 @@ interface UIState {
     setSettingsOpen: (open: boolean) => void;
     setEditorOpen: (open: boolean) => void;
     setHistoryOpen: (open: boolean) => void;
+    setOrchestratorOpen: (open: boolean) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -30,6 +32,7 @@ export const useUIStore = create<UIState>((set) => ({
     isSettingsOpen: false,
     isEditorOpen: true,
     isHistoryOpen: false,
+    isOrchestratorOpen: false,
 
     setActiveSidebarTab: (tab) => set({ activeSidebarTab: tab }),
     setActiveMode: (mode) => set({ activeMode: mode }),
@@ -38,4 +41,5 @@ export const useUIStore = create<UIState>((set) => ({
     setSettingsOpen: (open) => set({ isSettingsOpen: open }),
     setEditorOpen: (open) => set({ isEditorOpen: open }),
     setHistoryOpen: (open) => set({ isHistoryOpen: open }),
+    setOrchestratorOpen: (open) => set({ isOrchestratorOpen: open }),
 }));
