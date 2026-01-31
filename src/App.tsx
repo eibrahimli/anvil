@@ -2,6 +2,7 @@ import { CodeEditor } from "./components/Editor";
 import { TabList } from "./components/TabList";
 import { Chat } from "./components/Chat";
 import { AppShell } from "./components/layout/AppShell";
+import { SidePanel } from "./components/layout/SidePanel";
 import { SettingsModal } from "./components/settings/SettingsModal";
 import { ConfirmationModal } from "./components/ConfirmationModal";
 import { Terminal } from "./components/Terminal";
@@ -48,6 +49,7 @@ function App() {
     <AppShell>
        <SettingsModal />
        <ConfirmationModal />
+       <SidePanel />
        {/* Main Content Area: CHAT IS CENTER (Agent-First) */}
        <div className="flex-1 flex overflow-hidden">
           
@@ -62,21 +64,21 @@ function App() {
              )}>
                 <Terminal />
              </div>
-          </div>
+           </div>
 
-          {/* Secondary Focal Point: The Editor (On the right, toggleable) */}
-          {isEditorOpen && (
-            <div className="w-[550px] flex-shrink-0 border-l border-[var(--border)] bg-[var(--bg-surface)] shadow-2xl z-20 flex flex-col">
-              <div className="h-10 border-b border-[var(--border)] bg-[var(--bg-base)]/50 flex items-center px-4 justify-between shrink-0">
-                <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Observation Window</span>
-              </div>
-              <TabList />
-              <div className="flex-1 overflow-hidden">
-                <CodeEditor />
-              </div>
-            </div>
-          )}
-       </div>
+           {/* Secondary Focal Point: The Editor (On the right, toggleable) */}
+           {isEditorOpen && (
+             <div className="w-[550px] flex-shrink-0 border-l border-[var(--border)] bg-[var(--bg-surface)] shadow-2xl z-20 flex flex-col">
+               <div className="h-10 border-b border-[var(--border)] bg-[var(--bg-base)]/50 flex items-center px-4 justify-between shrink-0">
+                 <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Observation Window</span>
+               </div>
+               <TabList />
+               <div className="flex-1 overflow-hidden">
+                 <CodeEditor />
+               </div>
+             </div>
+           )}
+        </div>
     </AppShell>
   );
 }

@@ -522,3 +522,118 @@ pub fn resolve_question(
 ) -> Result<(), String> {
     crate::adapters::tools::question::QuestionTool::resolve_question(question_id, answers)
 }
+
+#[tauri::command]
+pub async fn read_todos(
+    workspace_path: String,
+    filter: Option<String>,
+) -> Result<Value, String> {
+    use crate::adapters::tools::todoread::TodoReadTool;
+    use crate::domain::ports::Tool;
+    
+    let path = PathBuf::from(&workspace_path);
+    let tool = TodoReadTool::new(path);
+    
+    let filter_str = filter.unwrap_or_else(|| "all".to_string());
+    
+    let input = json!({
+        "filter": filter_str
+    });
+    
+    tool.execute(input).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn write_todo(
+    workspace_path: String,
+    action: String,
+    id: Option<String>,
+    content: Option<String>,
+    status: Option<String>,
+    priority: Option<String>,
+) -> Result<Value, String> {
+    use crate::adapters::tools::todo::TodoWriteTool;
+    use crate::domain::ports::Tool;
+    
+    let path = PathBuf::from(&workspace_path);
+    let tool = TodoWriteTool::new(path);
+    
+    let mut input = json!({
+        "action": action
+    });
+    
+    if let Some(id_val) = id {
+        input["id"] = json!(id_val);
+    }
+    
+    if let Some(content_val) = content {
+        input["content"] = json!(content_val);
+    }
+    
+    if let Some(status_val) = status {
+        input["status"] = json!(status_val);
+    }
+    
+    if let Some(priority_val) = priority {
+        input["priority"] = json!(priority_val);
+    }
+    
+    tool.execute(input).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_file_tree(path: String) -> Result<Vec<serde_json::Value>, String> {
+    use crate::adapters::tools::list::ListTool;
+    use crate::domain::ports::Tool;
+    
+    let path_buf = PathBuf::from(&path);
+    let tool = ListTool::new(path_buf.clone());
+    
+    let input = serde_json::json!({
+        "path": ".",
+        "depth": 10,
+        "show_hidden": false,
+        "filter": "all"
+    });
+    
+    let result = tool.execute(input).await.map_err(|e| e.to_string())?;
+    
+    // Convert list entries to file tree format
+    let entries = result.get("entries")
+        .and_then(|e| e.as_array())
+        .ok_or("Failed to get entries")?;
+    
+    let nodes: Vec<serde_json::Value> = entries.iter().map(|entry| {
+        let kind = entry.get("kind").and_then(|k| k.as_str()).unwrap_or("file");
+        let name = entry.get("name").and_then(|n| n.as_str()).unwrap_or("unknown");
+        let entry_path = entry.get("path").and_then(|p| p.as_str()).unwrap_or("");
+        
+        serde_json::json!({
+            "name": name,
+            "path": format!("{}/{}", path, entry_path),
+            "kind": kind,
+            "children": null
+        })
+    }).collect();
+    
+    Ok(nodes)
+}
+
+#[tauri::command]
+pub async fn search(
+    workspace_path: String,
+    pattern: String,
+) -> Result<serde_json::Value, String> {
+    use crate::adapters::tools::search::SearchTool;
+    use crate::domain::ports::Tool;
+    
+    let path = PathBuf::from(&workspace_path);
+    let tool = SearchTool::new(path);
+    
+    let input = serde_json::json!({
+        "pattern": pattern,
+        "path": "."
+    });
+    
+    tool.execute(input).await.map_err(|e| e.to_string())
+}
