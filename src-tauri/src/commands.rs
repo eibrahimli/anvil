@@ -3,7 +3,7 @@ use crate::adapters::openai::OpenAIAdapter;
 use crate::adapters::gemini::GeminiAdapter;
 use crate::adapters::anthropic::AnthropicAdapter;
 use crate::adapters::ollama::OllamaAdapter;
-use crate::adapters::tools::{files::ReadFileTool, files::WriteFileTool, files::EditFileTool, bash::BashTool, git::GitTool, search::SearchTool, symbols::SymbolsTool, glob::GlobTool, list::ListTool, web::WebFetchTool, patch::PatchTool, question::QuestionTool};
+use crate::adapters::tools::{files::ReadFileTool, files::WriteFileTool, files::EditFileTool, bash::BashTool, git::GitTool, search::SearchTool, symbols::SymbolsTool, glob::GlobTool, list::ListTool, web::WebFetchTool, patch::PatchTool, question::QuestionTool, todo::TodoWriteTool};
 use crate::domain::agent::Agent;
 use crate::domain::orchestrator::{Orchestrator, Task, TaskStatus};
 use crate::domain::models::{AgentSession, AgentPermissions, ModelId, AgentMode, AgentRole};
@@ -130,6 +130,7 @@ pub async fn create_session(
         Arc::new(WebFetchTool::new()),
         Arc::new(PatchTool::new(path.clone())),
         Arc::new(QuestionTool::new(app.clone())),
+        Arc::new(TodoWriteTool::new(path.clone())),
     ];
 
     let new_session = AgentSession {
@@ -361,6 +362,7 @@ pub async fn replay_session(
         Arc::new(WebFetchTool::new()),
         Arc::new(PatchTool::new(path.clone())),
         Arc::new(QuestionTool::new(app.clone())),
+        Arc::new(TodoWriteTool::new(path.clone())),
     ];
 
     let new_session = AgentSession {
@@ -451,6 +453,7 @@ pub async fn add_agent_to_orchestrator(
         Arc::new(WebFetchTool::new()),
         Arc::new(PatchTool::new(path.clone())),
         Arc::new(QuestionTool::new(app.clone())),
+        Arc::new(TodoWriteTool::new(path.clone())),
     ];
 
     orchestrator.add_agent(uuid, role_enum, model, tools, AgentMode::Build).await
