@@ -158,20 +158,57 @@ impl Agent {
                          }
                      }
 
-                     let tool = self.tools.iter().find(|t| t.name() == call.name);
+                      let tool = self.tools.iter().find(|t| t.name() == call.name);
                      
                      let result_content = if let Some(tool) = tool {
-                         // TODO: Check Permissions here
-                         
                          let args: Value = serde_json::from_str(&call.arguments).unwrap_or(json!({}));
                          
-                         match tool.execute(args).await {
-                             Ok(val) => val.to_string(),
-                             Err(err) => format!("Error: {}", err),
+                         // Check Permissions
+                         let action = match tool.name() {
+                             "bash" => {
+                                 let cmd = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
+                                 self.session.permissions.config.bash.evaluate(cmd)
+                             },
+                             "read_file" => {
+                                 let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                                 self.session.permissions.config.read.evaluate(path)
+                             },
+                             "write_file" => {
+                                 let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                                 self.session.permissions.config.write.evaluate(path)
+                             },
+                             "edit_file" => {
+                                 let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                                 self.session.permissions.config.edit.evaluate(path)
+                             },
+                             _ => crate::config::Action::Allow, // Other tools allowed by default for now
+                         };
+
+                         match action {
+                             crate::config::Action::Deny => {
+                                 format!("Error: Permission denied for tool '{}'.", call.name)
+                             },
+                             crate::config::Action::Ask => {
+                                 // TODO: Implement interactive Ask. For now, treat as Deny if not handled.
+                                 // Actually, some tools already have their own confirmation.
+                                 // We need to integrate this with the existing confirmation system.
+                                 
+                                 match tool.execute(args).await {
+                                     Ok(val) => val.to_string(),
+                                     Err(err) => format!("Error: {}", err),
+                                 }
+                             },
+                             crate::config::Action::Allow => {
+                                 match tool.execute(args).await {
+                                     Ok(val) => val.to_string(),
+                                     Err(err) => format!("Error: {}", err),
+                                 }
+                             }
                          }
                      } else {
                          format!("Error: Tool '{}' not found.", call.name)
                      };
+
 
                      // Append Tool Output
                      self.session.messages.push(Message {
@@ -315,18 +352,53 @@ impl Agent {
                          }
                      }
 
-                     let tool = self.tools.iter().find(|t| t.name() == call.name);
+                      let tool = self.tools.iter().find(|t| t.name() == call.name);
                      
                      let result_content = if let Some(tool) = tool {
                          let args: Value = serde_json::from_str(&call.arguments).unwrap_or(json!({}));
                          
-                         match tool.execute(args).await {
-                             Ok(val) => val.to_string(),
-                             Err(err) => format!("Error: {}", err),
+                         // Check Permissions
+                         let action = match tool.name() {
+                             "bash" => {
+                                 let cmd = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
+                                 self.session.permissions.config.bash.evaluate(cmd)
+                             },
+                             "read_file" => {
+                                 let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                                 self.session.permissions.config.read.evaluate(path)
+                             },
+                             "write_file" => {
+                                 let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                                 self.session.permissions.config.write.evaluate(path)
+                             },
+                             "edit_file" => {
+                                 let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                                 self.session.permissions.config.edit.evaluate(path)
+                             },
+                             _ => crate::config::Action::Allow,
+                         };
+
+                         match action {
+                             crate::config::Action::Deny => {
+                                 format!("Error: Permission denied for tool '{}'.", call.name)
+                             },
+                             crate::config::Action::Ask => {
+                                 match tool.execute(args).await {
+                                     Ok(val) => val.to_string(),
+                                     Err(err) => format!("Error: {}", err),
+                                 }
+                             },
+                             crate::config::Action::Allow => {
+                                 match tool.execute(args).await {
+                                     Ok(val) => val.to_string(),
+                                     Err(err) => format!("Error: {}", err),
+                                 }
+                             }
                          }
                      } else {
                          format!("Error: Tool '{}' not found.", call.name)
                      };
+
 
                      // Notify frontend about tool result
                      let _ = tx.send(format!("\n\n> Result: \n```\n{}\n```\n", result_content)).await;

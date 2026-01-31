@@ -188,12 +188,16 @@ impl Storage {
 
         Ok(AgentSession {
             id: uuid,
-            workspace_path: workspace_path.into(),
+            workspace_path: workspace_path.clone().into(),
             model: ModelId(model),
             mode: agent_mode,
             messages,
             permissions: AgentPermissions {
-                allowed: std::collections::HashSet::new(),
+                config: {
+                    let mut config_manager = crate::config::ConfigManager::new();
+                    let _ = config_manager.load(Some(&std::path::Path::new(&workspace_path)));
+                    config_manager.config().permission.clone()
+                },
             },
         })
     }

@@ -32,12 +32,35 @@ impl Default for Action {
 }
 
 /// Permission configuration for a specific tool
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermissionRule {
+    pub pattern: String,
+    pub action: Action,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ToolPermission {
     #[serde(default)]
     pub default: Action,
     #[serde(default)]
-    pub rules: HashMap<String, Action>,
+    pub rules: Vec<PermissionRule>,
+}
+
+impl ToolPermission {
+    /// Evaluate permission for a given input string (command or path)
+    pub fn evaluate(&self, input: &str) -> Action {
+        let mut matched_action = self.default.clone();
+
+        for rule in &self.rules {
+            if let Ok(pattern) = glob::Pattern::new(&rule.pattern) {
+                if pattern.matches(input) {
+                    matched_action = rule.action.clone();
+                }
+            }
+        }
+
+        matched_action
+    }
 }
 
 /// Permission configuration
@@ -256,9 +279,8 @@ impl ConfigManager {
     /// Merge two tool permission configurations
     fn merge_tool_permissions(global: &ToolPermission, local: &ToolPermission) -> ToolPermission {
         let mut merged_rules = global.rules.clone();
-        for (key, value) in &local.rules {
-            merged_rules.insert(key.clone(), value.clone());
-        }
+        // Local rules are appended to global rules (so they have higher priority in last-match-wins)
+        merged_rules.extend(local.rules.clone());
 
         ToolPermission {
             default: if local.default != Action::Ask {
@@ -293,10 +315,20 @@ impl ConfigManager {
         config.model = Some(DEFAULT_MODEL.to_string());
 
         // Set up default read permissions to protect .env files
-        let mut read_rules = HashMap::new();
-        read_rules.insert("*.env".to_string(), Action::Deny);
-        read_rules.insert("*.env.*".to_string(), Action::Deny);
-        read_rules.insert("*.env.example".to_string(), Action::Allow);
+        let read_rules = vec![
+            PermissionRule {
+                pattern: "*.env".to_string(),
+                action: Action::Deny,
+            },
+            PermissionRule {
+                pattern: "*.env.*".to_string(),
+                action: Action::Deny,
+            },
+            PermissionRule {
+                pattern: "*.env.example".to_string(),
+                action: Action::Allow,
+            },
+        ];
 
         config.permission.read = ToolPermission {
             default: Action::Ask,
@@ -306,7 +338,7 @@ impl ConfigManager {
         // Default bash permissions: ask for everything
         config.permission.bash = ToolPermission {
             default: Action::Ask,
-            rules: HashMap::new(),
+            rules: Vec::new(),
         };
 
         config
@@ -345,7 +377,6 @@ use dirs;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
     use tempfile::TempDir;
 
     #[test]
@@ -367,9 +398,9 @@ mod tests {
             "permission": {
                 "bash": {
                     "default": "ask",
-                    "rules": {
-                        "git status *": "allow"
-                    }
+                    "rules": [
+                        { "pattern": "git status *", "action": "allow" }
+                    ]
                 }
             }
         }"#;
@@ -378,7 +409,7 @@ mod tests {
         assert_eq!(config.model, Some("gpt-4".to_string()));
         assert!(config.provider.contains_key("openai"));
         assert_eq!(config.permission.bash.default, Action::Ask);
-        assert!(config.permission.bash.rules.contains_key("git status *"));
+        assert_eq!(config.permission.bash.rules[0].pattern, "git status *");
     }
 
     #[test]
@@ -444,11 +475,10 @@ mod tests {
         let global_perm = PermissionConfig {
             bash: ToolPermission {
                 default: Action::Ask,
-                rules: {
-                    let mut m = HashMap::new();
-                    m.insert("git status *".to_string(), Action::Allow);
-                    m
-                },
+                rules: vec![PermissionRule {
+                    pattern: "git status *".to_string(),
+                    action: Action::Allow,
+                }],
             },
             ..Default::default()
         };
@@ -456,11 +486,10 @@ mod tests {
         let local_perm = PermissionConfig {
             bash: ToolPermission {
                 default: Action::Deny,
-                rules: {
-                    let mut m = HashMap::new();
-                    m.insert("git push *".to_string(), Action::Ask);
-                    m
-                },
+                rules: vec![PermissionRule {
+                    pattern: "git push *".to_string(),
+                    action: Action::Ask,
+                }],
             },
             ..Default::default()
         };
@@ -470,8 +499,31 @@ mod tests {
         // Local default should win
         assert_eq!(merged.bash.default, Action::Deny);
         // Both rules should be present
-        assert_eq!(merged.bash.rules.get("git status *"), Some(&Action::Allow));
-        assert_eq!(merged.bash.rules.get("git push *"), Some(&Action::Ask));
+        assert_eq!(merged.bash.rules.len(), 2);
+        assert_eq!(merged.bash.rules[0].pattern, "git status *");
+        assert_eq!(merged.bash.rules[1].pattern, "git push *");
+    }
+
+    #[test]
+    fn test_permission_evaluate() {
+        let tp = ToolPermission {
+            default: Action::Ask,
+            rules: vec![
+                PermissionRule {
+                    pattern: "git status*".to_string(),
+                    action: Action::Allow,
+                },
+                PermissionRule {
+                    pattern: "rm -rf*".to_string(),
+                    action: Action::Deny,
+                },
+            ],
+        };
+
+        assert_eq!(tp.evaluate("git status"), Action::Allow);
+        assert_eq!(tp.evaluate("git status -s"), Action::Allow);
+        assert_eq!(tp.evaluate("rm -rf /"), Action::Deny);
+        assert_eq!(tp.evaluate("ls -la"), Action::Ask); // Default
     }
 
     #[test]
@@ -479,14 +531,12 @@ mod tests {
         let config = ConfigManager::create_default_global_config();
 
         assert_eq!(config.model, Some(DEFAULT_MODEL.to_string()));
+        assert_eq!(config.permission.read.evaluate("secret.env"), Action::Deny);
         assert_eq!(
-            config.permission.read.rules.get("*.env"),
-            Some(&Action::Deny)
+            config.permission.read.evaluate("config.env.example"),
+            Action::Allow
         );
-        assert_eq!(
-            config.permission.read.rules.get("*.env.example"),
-            Some(&Action::Allow)
-        );
+        assert_eq!(config.permission.read.evaluate("README.md"), Action::Ask);
     }
 
     #[test]

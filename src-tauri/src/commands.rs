@@ -8,7 +8,6 @@ use crate::domain::agent::Agent;
 use crate::domain::orchestrator::{Orchestrator, Task, TaskStatus};
 use crate::domain::models::{AgentSession, AgentPermissions, ModelId, AgentMode, AgentRole};
 use crate::domain::ports::ModelAdapter;
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{State, Emitter};
@@ -134,13 +133,19 @@ pub async fn create_session(
         Arc::new(TodoReadTool::new(path.clone())),
     ];
 
+    let mut config_manager = crate::config::ConfigManager::new();
+    let _ = config_manager.load(Some(&path));
+    let config = config_manager.config();
+
     let new_session = AgentSession {
         id,
         workspace_path: path.clone(),
         model: ModelId(model_id.clone()),
         mode: AgentMode::Build,
         messages: vec![],
-        permissions: AgentPermissions { allowed: HashSet::new() },
+        permissions: AgentPermissions { 
+            config: config.permission.clone() 
+        },
     };
 
     let agent = Agent::new(new_session.clone(), model.clone(), tools);
@@ -367,13 +372,19 @@ pub async fn replay_session(
         Arc::new(TodoReadTool::new(path.clone())),
     ];
 
+    let mut config_manager = crate::config::ConfigManager::new();
+    let _ = config_manager.load(Some(&path));
+    let config = config_manager.config();
+
     let new_session = AgentSession {
         id: uuid,
         workspace_path: path.clone(),
         model: ModelId(model_id_value),
         mode: original_session.mode,
         messages: original_session.messages,
-        permissions: AgentPermissions { allowed: HashSet::new() },
+        permissions: AgentPermissions { 
+            config: config.permission.clone() 
+        },
     };
 
     let agent = Agent::new(new_session, model, tools);

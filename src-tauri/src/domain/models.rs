@@ -1,15 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::path::PathBuf;
 use uuid::Uuid;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub enum Permission {
-    ReadFS,
-    WriteFS,
-    ExecShell,
-    Network,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum Role {
@@ -54,7 +45,7 @@ pub enum AgentRole {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentPermissions {
-    pub allowed: HashSet<Permission>,
+    pub config: crate::config::PermissionConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
