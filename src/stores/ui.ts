@@ -25,12 +25,12 @@ interface UIState {
 }
 
 export const useUIStore = create<UIState>((set) => ({
-    activeSidebarTab: 'explorer',
+    activeSidebarTab: null,
     activeMode: 'build',
     temperature: 'low',
     isTerminalOpen: false,
     isSettingsOpen: false,
-    isEditorOpen: true,
+    isEditorOpen: false,
     isHistoryOpen: false,
     isOrchestratorOpen: false,
 
