@@ -315,14 +315,24 @@ impl ConfigManager {
         config.model = Some(DEFAULT_MODEL.to_string());
 
         // Set up default read permissions to protect .env files
+        // Order matters: Last match wins. So specific ALLOWs must come after general DENYs.
         let read_rules = vec![
+            PermissionRule {
+                pattern: ".env".to_string(),
+                action: Action::Deny,
+            },
+            PermissionRule {
+                pattern: ".env.*".to_string(),
+                action: Action::Deny,
+            },
             PermissionRule {
                 pattern: "*.env".to_string(),
                 action: Action::Deny,
             },
+            // Exceptions
             PermissionRule {
-                pattern: "*.env.*".to_string(),
-                action: Action::Deny,
+                pattern: ".env.example".to_string(),
+                action: Action::Allow,
             },
             PermissionRule {
                 pattern: "*.env.example".to_string(),
@@ -531,11 +541,19 @@ mod tests {
         let config = ConfigManager::create_default_global_config();
 
         assert_eq!(config.model, Some(DEFAULT_MODEL.to_string()));
+        assert_eq!(config.permission.read.evaluate(".env"), Action::Deny);
+        assert_eq!(config.permission.read.evaluate(".env.local"), Action::Deny);
         assert_eq!(config.permission.read.evaluate("secret.env"), Action::Deny);
+
+        assert_eq!(
+            config.permission.read.evaluate(".env.example"),
+            Action::Allow
+        );
         assert_eq!(
             config.permission.read.evaluate("config.env.example"),
             Action::Allow
         );
+
         assert_eq!(config.permission.read.evaluate("README.md"), Action::Ask);
     }
 
