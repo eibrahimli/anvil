@@ -7,6 +7,7 @@ import { useUIStore, AgentMode } from "../stores/ui";
 import { Message } from "../types";
 import { ChevronDown, Send, Sparkles, User, Terminal as TermIcon, History as HistoryIcon, Zap, Clock, Image as ImageIcon } from "lucide-react";
 import { ToolResultRenderer } from "./tools/ToolResultRenderer";
+import { QuestionModal } from "./QuestionModal";
 import clsx from "clsx";
 
 import { useAgentEvents } from "../hooks/useAgentEvents";
@@ -415,6 +416,9 @@ export function Chat() {
                 <span className="w-1 h-1 bg-zinc-800 rounded-full" />
                 <span>Control + P for commands</span>
             </div>
+            
+            {/* Question Modal for agent interactions */}
+            <QuestionModal />
         </div>
     );
 }

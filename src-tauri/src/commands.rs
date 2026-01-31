@@ -3,7 +3,7 @@ use crate::adapters::openai::OpenAIAdapter;
 use crate::adapters::gemini::GeminiAdapter;
 use crate::adapters::anthropic::AnthropicAdapter;
 use crate::adapters::ollama::OllamaAdapter;
-use crate::adapters::tools::{files::ReadFileTool, files::WriteFileTool, files::EditFileTool, bash::BashTool, git::GitTool, search::SearchTool, symbols::SymbolsTool, glob::GlobTool, list::ListTool, web::WebFetchTool, patch::PatchTool};
+use crate::adapters::tools::{files::ReadFileTool, files::WriteFileTool, files::EditFileTool, bash::BashTool, git::GitTool, search::SearchTool, symbols::SymbolsTool, glob::GlobTool, list::ListTool, web::WebFetchTool, patch::PatchTool, question::QuestionTool};
 use crate::domain::agent::Agent;
 use crate::domain::orchestrator::{Orchestrator, Task, TaskStatus};
 use crate::domain::models::{AgentSession, AgentPermissions, ModelId, AgentMode, AgentRole};
@@ -14,7 +14,7 @@ use std::sync::Arc;
 use tauri::{State, Emitter};
 use tokio::sync::Mutex;
 use uuid::Uuid;
-use serde_json::json;
+use serde_json::{json, Value};
 
 #[tauri::command]
 pub fn get_cwd() -> Result<String, String> {
@@ -129,6 +129,7 @@ pub async fn create_session(
         Arc::new(ListTool::new(path.clone())),
         Arc::new(WebFetchTool::new()),
         Arc::new(PatchTool::new(path.clone())),
+        Arc::new(QuestionTool::new(app.clone())),
     ];
 
     let new_session = AgentSession {
@@ -359,6 +360,7 @@ pub async fn replay_session(
         Arc::new(ListTool::new(path.clone())),
         Arc::new(WebFetchTool::new()),
         Arc::new(PatchTool::new(path.clone())),
+        Arc::new(QuestionTool::new(app.clone())),
     ];
 
     let new_session = AgentSession {
@@ -448,6 +450,7 @@ pub async fn add_agent_to_orchestrator(
         Arc::new(ListTool::new(path.clone())),
         Arc::new(WebFetchTool::new()),
         Arc::new(PatchTool::new(path.clone())),
+        Arc::new(QuestionTool::new(app.clone())),
     ];
 
     orchestrator.add_agent(uuid, role_enum, model, tools, AgentMode::Build).await
@@ -506,3 +509,10 @@ pub async fn get_task_status(
     status.ok_or("Task not found".to_string())
 }
 
+#[tauri::command]
+pub fn resolve_question(
+    question_id: String,
+    answers: Value,
+) -> Result<(), String> {
+    crate::adapters::tools::question::QuestionTool::resolve_question(question_id, answers)
+}
