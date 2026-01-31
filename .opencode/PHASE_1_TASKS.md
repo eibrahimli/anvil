@@ -178,8 +178,11 @@ parameters: {
 
 ---
 
-## Task 1.5: Implement `patch` Tool
-**Status:** ⬜ Not Started  
+## Task 1.5: Implement `patch` Tool 🔄 IN PROGRESS
+**Status:** 🔄 In Progress (Started: 2026-01-31)
+**Branch:** `task/1-5-patch`
+**Assignee:** AI Agent
+**Time Estimate:** 1 hour  
 **Assignee:** AI Agent  
 **Time Estimate:** 1 hour
 

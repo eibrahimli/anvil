@@ -6,3 +6,4 @@ pub mod symbols;
 pub mod glob;
 pub mod list;
 pub mod web;
+pub mod patch;

@@ -25,6 +25,54 @@ Anvil is a Tauri-based application using React, TypeScript, and Vite. It serves 
 - **Testing:** No test framework (Jest/Vitest) is currently configured.
   - *Instruction:* If asked to add tests, propose installing **Vitest** as it integrates well with Vite.
 
+### Testing Rust Tools (CRITICAL - ALWAYS TEST)
+**Every new tool MUST be tested before PR.** Testing is mandatory, not optional.
+
+**Step 1: Unit Tests (Backend)**
+```bash
+cd src-tauri
+# Test specific tool
+cargo test tool_name::tests -- --nocapture
+
+# Example: Test glob tool
+cargo test glob::tests -- --nocapture
+
+# Example: Test all new tools
+cargo test glob::tests list::tests web::tests -- --nocapture
+```
+
+**Step 2: Verify Compilation**
+```bash
+cd src-tauri
+cargo check
+# Must show: Finished dev profile [unoptimized + debuginfo]
+# Must have 0 errors, minimize warnings
+```
+
+**Step 3: Manual Integration Test (Full App)**
+```bash
+# Terminal 1: Start the app
+npm run tauri dev
+
+# In the app:
+# 1. Select a workspace folder
+# 2. Start a chat session
+# 3. Ask agent to use the tool
+# Example: "Use the glob tool to find all Rust files"
+# Example: "Fetch https://example.com using webfetch"
+```
+
+**Step 4: PR Checklist**
+Before creating PR, verify:
+- [ ] Unit tests written and passing (cargo test)
+- [ ] Tool registered in ALL 3 locations (create_session, replay_session, orchestrator)
+- [ ] Module declared in `src/adapters/tools/mod.rs`
+- [ ] Import added to `src/commands.rs`
+- [ ] 0 compilation errors
+- [ ] Manual test shows tool execution in UI
+- [ ] PR title follows format: `feat(tools): Implement {tool_name} tool`
+- [ ] PR description includes test results
+
 ## Code Style & Conventions
 
 ### Formatting
