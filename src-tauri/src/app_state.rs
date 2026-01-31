@@ -1,4 +1,5 @@
 use crate::domain::agent::Agent;
+use crate::domain::orchestrator::Orchestrator;
 use crate::storage::Storage;
 use crate::terminal::TerminalManager;
 use std::collections::HashMap;
@@ -10,6 +11,7 @@ pub struct AppState {
     pub terminal: Mutex<TerminalManager>,
     pub pending_confirmations: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
     pub storage: Arc<Mutex<Option<Storage>>>,
+    pub orchestrator: tokio::sync::Mutex<Option<Orchestrator>>,
 }
 
 impl AppState {
@@ -19,6 +21,7 @@ impl AppState {
             terminal: Mutex::new(TerminalManager::new()),
             pending_confirmations: Arc::new(Mutex::new(HashMap::new())),
             storage: Arc::new(Mutex::new(None)),
+            orchestrator: tokio::sync::Mutex::new(None),
         }
     }
 

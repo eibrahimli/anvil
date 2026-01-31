@@ -32,23 +32,29 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            greet, 
-            commands::create_session, 
-            commands::chat, 
-            commands::stream_chat,
-            commands::get_file_tree, 
-            commands::read_file,
-            commands::spawn_terminal,
-            commands::write_terminal,
-            commands::resize_terminal,
-            commands::get_cwd,
-            commands::confirm_action,
-            commands::save_session,
-            commands::load_session,
-            commands::list_sessions,
-            commands::delete_session,
-            commands::replay_session
-        ])
+        greet, 
+        commands::create_session, 
+        commands::chat, 
+        commands::stream_chat,
+        commands::read_file,
+        commands::spawn_terminal,
+        commands::write_terminal,
+        commands::resize_terminal,
+        commands::get_cwd,
+        commands::confirm_action,
+        commands::save_session,
+        commands::load_session,
+        commands::list_sessions,
+        commands::delete_session,
+        commands::replay_session,
+        commands::init_orchestrator,
+        commands::add_agent_to_orchestrator,
+        commands::create_task,
+        commands::process_tasks,
+        commands::get_all_tasks,
+        commands::get_task_status,
+        commands::open_file_in_editor
+    ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

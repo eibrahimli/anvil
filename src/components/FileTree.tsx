@@ -4,7 +4,7 @@ import { useStore } from "../store";
 import { FileNode } from "../types";
 
 export function FileTree() {
-    const { workspacePath, files, activeFile, setActiveFile, setFiles, setActiveFileContent } = useStore();
+    const { workspacePath, files, activeFile, setFiles, setActiveFileContent, openFile } = useStore();
 
     useEffect(() => {
         if (workspacePath) {
@@ -24,7 +24,7 @@ export function FileTree() {
     async function loadFile(path: string) {
         try {
             const content = await invoke<string>("read_file", { path });
-            setActiveFile(path);
+            openFile(path);
             setActiveFileContent(content);
         } catch (e) {
             console.error(e);

@@ -9,6 +9,7 @@ interface AppState {
     files: FileNode[];
     activeFile: string | null;
     activeFileContent: string;
+    openFiles: string[];
     messages: Message[];
     
     setSessionId: (id: string) => void;
@@ -21,6 +22,8 @@ interface AppState {
     setActiveFile: (path: string) => void;
     setActiveFileContent: (content: string) => void;
     setFiles: (files: FileNode[]) => void;
+    openFile: (path: string) => void;
+    closeFile: (path: string) => void;
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -31,6 +34,7 @@ export const useStore = create<AppState>((set) => ({
     files: [],
     activeFile: null,
     activeFileContent: "// Select a file to view",
+    openFiles: [],
     messages: [],
 
     setSessionId: (id) => set({ sessionId: id }),
@@ -61,4 +65,19 @@ export const useStore = create<AppState>((set) => ({
     setActiveFile: (path) => set({ activeFile: path }),
     setActiveFileContent: (content) => set({ activeFileContent: content }),
     setFiles: (files) => set({ files }),
+    openFile: (path) => set((state) => ({ 
+        openFiles: state.openFiles.includes(path) ? state.openFiles : [...state.openFiles, path],
+        activeFile: path
+    })),
+    closeFile: (path) => set((state) => {
+        const newOpenFiles = state.openFiles.filter(f => f !== path);
+        let newActiveFile = state.activeFile;
+        if (state.activeFile === path) {
+            newActiveFile = newOpenFiles.length > 0 ? newOpenFiles[newOpenFiles.length - 1] : null;
+        }
+        return { 
+            openFiles: newOpenFiles,
+            activeFile: newActiveFile
+        };
+    }),
 }));

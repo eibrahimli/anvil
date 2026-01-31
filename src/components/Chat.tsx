@@ -4,22 +4,25 @@ import { listen } from "@tauri-apps/api/event";
 import { useStore } from "../store";
 import { useProviderStore } from "../stores/provider";
 import { useUIStore, AgentMode } from "../stores/ui";
-import { useHistoryStore } from "../stores/history";
 import { Message } from "../types";
 import { ChevronDown, Send, Sparkles, User, Terminal as TermIcon, History as HistoryIcon, Zap, Clock, Image as ImageIcon } from "lucide-react";
+import { ToolResultRenderer } from "./tools/ToolResultRenderer";
 import clsx from "clsx";
+
+import { useAgentEvents } from "../hooks/useAgentEvents";
 
 export function Chat() {
     const { sessionId, messages, addMessage, workspacePath, setSessionId, appendTokenToLastMessage, updateLastMessageContent } = useStore();
     const { enabledModels, activeModelId, setActiveModel, activeProviderId, apiKeys } = useProviderStore();
-    const { setSettingsOpen, activeMode, setActiveMode, temperature, setTemperature } = useUIStore();
-    const { } = useHistoryStore();
+    const { activeMode, setActiveMode, temperature, setTemperature, isEditorOpen: _isEditorOpen, setSettingsOpen } = useUIStore();
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
     const [activeDropdown, setActiveDropdown] = useState<'mode' | 'model' | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const modeDropdownRef = useRef<HTMLDivElement>(null);
     const modelDropdownRef = useRef<HTMLDivElement>(null);
+    
+    useAgentEvents(); // Hook to listen for backend events (file open, etc.)
 
     // Close dropdowns when clicking outside
     useEffect(() => {
@@ -124,15 +127,6 @@ export function Chat() {
                 temperature: tempValue
             });
             
-            // Note: The stream fills the message. The return value is the final full content.
-            // Since we updated via stream, we generally don't need to replace it unless we suspect dropped frames.
-            // For now, let's rely on the stream.
-            console.log("Chat finished:", response);
-            
-            // Fix for "Simulated Streaming" (Gemini/Anthropic fallback)
-            // If the stream was simulated, it sends the full content as a token.
-            // But if the stream had hiccups or if it was a tool call chain where intermediate steps were empty,
-            // we ensure the final UI state matches the final response.
             if (response && response.trim().length > 0) {
                  updateLastMessageContent(response);
             }
@@ -150,6 +144,55 @@ export function Chat() {
         }
     }
 
+    // Helper function to parse tool execution patterns in message content
+    interface ToolPart {
+        type: 'tool';
+        toolName: string;
+        result: string;
+    }
+    interface TextPart {
+        type: 'text';
+        content: string;
+    }
+    type MessagePart = ToolPart | TextPart;
+
+    const parseToolResults = (content: string): MessagePart[] => {
+        const parts: MessagePart[] = [];
+        const toolPattern = /> Executing tool: `([^`]+)`[\s\S]*?(?:> Result:\s*)?```\n?([\s\S]*?)```/g;
+
+        let lastIndex = 0;
+        let match;
+
+        while ((match = toolPattern.exec(content)) !== null) {
+            // Add text before the tool execution
+            if (match.index > lastIndex) {
+                parts.push({
+                    type: 'text',
+                    content: content.slice(lastIndex, match.index)
+                });
+            }
+
+            // Add the tool execution
+            parts.push({
+                type: 'tool',
+                toolName: match[1],
+                result: match[2]
+            });
+
+            lastIndex = match.index + match[0].length;
+        }
+
+        // Add remaining text
+        if (lastIndex < content.length) {
+            parts.push({
+                type: 'text',
+                content: content.slice(lastIndex)
+            });
+        }
+
+        return parts.length > 0 ? parts : [{ type: 'text', content }];
+    };
+
     return (
         <div className="flex flex-col h-full bg-[var(--bg-base)] text-[var(--text-primary)] font-sans relative">
             {/* Header - Simple and clean */}
@@ -160,7 +203,7 @@ export function Chat() {
                         {workspacePath ? workspacePath.split('/').pop() : 'No Workspace'}
                     </span>
                 </div>
-                
+
                 <div className="flex items-center gap-3">
                     <button className="p-1.5 hover:bg-[var(--bg-elevated)] rounded-md text-gray-400 transition-colors">
                         <HistoryIcon size={16} />
@@ -177,24 +220,38 @@ export function Chat() {
                         <p className="text-sm">I can edit files, run terminal commands, and reason about your code architecture.</p>
                     </div>
                 )}
-                
-                {messages.map((m, i) => (
+
+                {messages.map((m, i) => {
+                    const parsedParts = parseToolResults(m.content || '');
+
+                    return (
                     <div key={i} className={`flex gap-4 ${m.role === "User" ? "flex-row-reverse" : "flex-row"}`}>
                         <div className={`w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center ${
-                            m.role === "User" ? "bg-[var(--bg-elevated)] text-zinc-400" : 
+                            m.role === "User" ? "bg-[var(--bg-elevated)] text-zinc-400" :
                             m.role === "System" ? "bg-red-900/20 text-red-500" : "bg-[var(--accent)]/20 text-[var(--accent)]"
                         }`}>
                             {m.role === "User" ? <User size={16} /> : <Sparkles size={16} />}
                         </div>
-                        
+
                         <div className={`flex flex-col max-w-[85%] ${m.role === "User" ? "items-end" : "items-start"}`}>
                             <div className={`rounded-xl p-4 text-sm leading-relaxed ${
-                                m.role === "User" ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] rounded-tr-none" : 
-                                m.role === "System" ? "bg-red-900/10 border border-red-900/30 text-red-400" : "bg-transparent text-[var(--text-secondary)] pl-0"
+                                m.role === "User" ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] rounded-tr-none" :
+                                m.role === "System" ? "bg-red-900/10 border border-red-900/30 text-red-400" : "bg-transparent text-[var(--text-secondary)] pl-0 w-full"
                             }`}>
-                                <div className="whitespace-pre-wrap font-sans">
-                                    {m.content}
-                                </div>
+                                {parsedParts.map((part, idx) => (
+                                    <div key={idx}>
+                                        {part.type === 'text' && part.content && (
+                                            <div className="whitespace-pre-wrap font-sans">
+                                                {part.content}
+                                            </div>
+                                        )}
+                                        {part.type === 'tool' && part.toolName && part.result && (
+                                            <div className="mt-3 mb-3">
+                                                <ToolResultRenderer toolName={part.toolName} result={part.result} />
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
 
                                 {m.tool_calls && (
                                     <div className="mt-4 space-y-2">
@@ -210,7 +267,8 @@ export function Chat() {
                             </div>
                         </div>
                     </div>
-                ))}
+                    );
+                })}
                 {loading && (
                     <div className="flex gap-4 animate-pulse">
                          <div className="w-8 h-8 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center text-[var(--accent)]">
@@ -345,12 +403,17 @@ export function Chat() {
                             </button>
                         </div>
                     </div>
+                    <div className="mt-3 flex items-center justify-center gap-4 text-[10px] text-zinc-600 font-bold uppercase tracking-widest">
+                        <span>Shift + Enter for new line</span>
+                        <span className="w-1 h-1 bg-zinc-800 rounded-full" />
+                        <span>Control + P for commands</span>
+                    </div>
                 </div>
-                <div className="mt-3 flex items-center justify-center gap-4 text-[10px] text-zinc-600 font-bold uppercase tracking-widest">
-                    <span>Shift + Enter for new line</span>
-                    <span className="w-1 h-1 bg-zinc-800 rounded-full" />
-                    <span>Control + P for commands</span>
-                </div>
+            </div>
+            <div className="mt-3 flex items-center justify-center gap-4 text-[10px] text-zinc-600 font-bold uppercase tracking-widest">
+                <span>Shift + Enter for new line</span>
+                <span className="w-1 h-1 bg-zinc-800 rounded-full" />
+                <span>Control + P for commands</span>
             </div>
         </div>
     );

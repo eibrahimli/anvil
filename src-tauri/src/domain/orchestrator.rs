@@ -34,14 +34,23 @@ pub struct SharedContext {
 }
 
 pub struct Orchestrator {
-    agents: HashMap<Uuid, Arc<tokio::sync::Mutex<Agent>>>,
+    agents: Arc<Mutex<HashMap<Uuid, Arc<tokio::sync::Mutex<Agent>>>>>,
     context: Arc<Mutex<SharedContext>>,
+}
+
+impl Clone for Orchestrator {
+    fn clone(&self) -> Self {
+        Self {
+            agents: Arc::clone(&self.agents),
+            context: Arc::clone(&self.context),
+        }
+    }
 }
 
 impl Orchestrator {
     pub fn new(workspace_path: std::path::PathBuf) -> Self {
         Self {
-            agents: HashMap::new(),
+            agents: Arc::new(Mutex::new(HashMap::new())),
             context: Arc::new(Mutex::new(SharedContext {
                 workspace_path,
                 task_queue: VecDeque::new(),
@@ -52,7 +61,7 @@ impl Orchestrator {
     }
 
     pub async fn add_agent(
-        &mut self,
+        &self,
         agent_id: Uuid,
         role: AgentRole,
         model: Arc<dyn ModelAdapter>,
@@ -74,7 +83,8 @@ impl Orchestrator {
         };
 
         let agent = Agent::new(session, model, tools);
-        self.agents.insert(agent_id, Arc::new(tokio::sync::Mutex::new(agent)));
+        let mut agents = self.agents.lock().await;
+        agents.insert(agent_id, Arc::new(tokio::sync::Mutex::new(agent)));
         Ok(())
     }
 
@@ -117,7 +127,7 @@ impl Orchestrator {
                         let mut ctx = self.context.lock().await;
                         if let Some(pos) = ctx.task_queue.iter().position(|t| t.id == task_id) {
                             ctx.task_queue[pos].status = TaskStatus::InProgress;
-                            ctx.task_queue[pos].assigned_to = self.find_best_agent_for_task(&ctx.task_queue[pos]);
+                            ctx.task_queue[pos].assigned_to = self.find_best_agent_for_task(&ctx.task_queue[pos]).await;
                             ctx.active_task = Some(task_id);
                         }
                     }
@@ -153,8 +163,9 @@ impl Orchestrator {
         Ok(results)
     }
 
-    fn find_best_agent_for_task(&self, _task: &Task) -> Option<Uuid> {
-        self.agents.keys().next().copied()
+    async fn find_best_agent_for_task(&self, _task: &Task) -> Option<Uuid> {
+        let agents = self.agents.lock().await;
+        agents.keys().next().copied()
     }
 
     async fn execute_task(&self, task_id: Uuid, description: &str) -> Result<String, String> {
@@ -167,7 +178,10 @@ impl Orchestrator {
 
         match agent_id_option {
             Some(id) => {
-                let agent_arc = self.agents.get(&id).ok_or_else(|| format!("Agent not found: {}", id))?;
+                let agent_arc = {
+                    let agents = self.agents.lock().await;
+                    agents.get(&id).cloned().ok_or_else(|| format!("Agent not found: {}", id))?
+                };
                 let mut agent = agent_arc.lock().await;
                 agent.step(Some(description.to_string())).await
             }

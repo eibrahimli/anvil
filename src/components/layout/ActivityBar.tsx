@@ -1,4 +1,4 @@
-import { Files, Settings, Box, TerminalSquare, Plus, Clock } from 'lucide-react';
+import { Files, Settings, Box, TerminalSquare, Plus, Clock, Users, Search } from 'lucide-react';
 import { useUIStore } from '../../stores/ui';
 import { useStore } from '../../store';
 import { useProviderStore } from '../../stores/provider';
@@ -8,7 +8,7 @@ import { invoke } from '@tauri-apps/api/core';
 import clsx from 'clsx';
 
 export function ActivityBar() {
-    const { activeSidebarTab, setActiveSidebarTab, isTerminalOpen, toggleTerminal, setSettingsOpen, isHistoryOpen, setHistoryOpen } = useUIStore();
+    const { activeSidebarTab, setActiveSidebarTab, isTerminalOpen, toggleTerminal, setSettingsOpen, isHistoryOpen, setHistoryOpen, isOrchestratorOpen, setOrchestratorOpen } = useUIStore();
     const { setWorkspacePath, setSessionId, workspacePath } = useStore();
     const { apiKeys, activeProviderId, activeModelId } = useProviderStore();
     const { workspaces, addWorkspace } = useWorkspaceStore();
@@ -130,11 +130,75 @@ export function ActivityBar() {
             </IconWrapper>
 
             <IconWrapper 
+                active={activeSidebarTab === 'search'} 
+                onClick={() => setActiveSidebarTab(activeSidebarTab === 'search' ? null : 'search')}
+                title="Global Search"
+            >
+                <Search size={22} strokeWidth={1.5} />
+            </IconWrapper>
+
+            <IconWrapper 
                 active={activeSidebarTab === 'providers'} 
                 onClick={() => setActiveSidebarTab(activeSidebarTab === 'providers' ? null : 'providers')}
                 title="AI Providers"
             >
                 <Box size={22} strokeWidth={1.5} />
+            </IconWrapper>
+
+            <IconWrapper 
+                active={activeSidebarTab === 'search'} 
+                onClick={() => setActiveSidebarTab(activeSidebarTab === 'search' ? null : 'search')}
+                title="Global Search"
+            >
+                <Search size={22} strokeWidth={1.5} />
+            </IconWrapper>
+
+            <IconWrapper 
+                active={activeSidebarTab === 'providers'} 
+                onClick={() => setActiveSidebarTab(activeSidebarTab === 'providers' ? null : 'providers')}
+                title="AI Providers"
+            >
+                <Box size={22} strokeWidth={1.5} />
+            </IconWrapper>
+
+            <IconWrapper 
+                active={activeSidebarTab === 'search'} 
+                onClick={() => setActiveSidebarTab(activeSidebarTab === 'search' ? null : 'search')}
+                title="Global Search"
+            >
+                <Search size={22} strokeWidth={1.5} />
+            </IconWrapper>
+
+            <IconWrapper 
+                active={activeSidebarTab === 'providers'} 
+                onClick={() => setActiveSidebarTab(activeSidebarTab === 'providers' ? null : 'providers')}
+                title="AI Providers"
+            >
+                <Box size={22} strokeWidth={1.5} />
+            </IconWrapper>
+
+            <IconWrapper 
+                active={activeSidebarTab === 'search'} 
+                onClick={() => setActiveSidebarTab(activeSidebarTab === 'search' ? null : 'search')}
+                title="Global Search"
+            >
+                <Search size={22} strokeWidth={1.5} />
+            </IconWrapper>
+
+            <IconWrapper 
+                active={activeSidebarTab === 'providers'} 
+                onClick={() => setActiveSidebarTab(activeSidebarTab === 'providers' ? null : 'providers')}
+                title="AI Providers"
+            >
+                <Box size={22} strokeWidth={1.5} />
+            </IconWrapper>
+
+            <IconWrapper 
+                active={isOrchestratorOpen} 
+                onClick={() => setOrchestratorOpen(!isOrchestratorOpen)}
+                title="Multi-Agent Orchestration"
+            >
+                <Users size={22} strokeWidth={1.5} />
             </IconWrapper>
 
             <IconWrapper 

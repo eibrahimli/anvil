@@ -1,4 +1,5 @@
 import { CodeEditor } from "./components/Editor";
+import { TabList } from "./components/TabList";
 import { Chat } from "./components/Chat";
 import { AppShell } from "./components/layout/AppShell";
 import { SettingsModal } from "./components/settings/SettingsModal";
@@ -7,6 +8,8 @@ import { Terminal } from "./components/Terminal";
 import { useUIStore } from "./stores/ui";
 import { useStore } from "./store";
 import { useConfirmationStore } from "./stores/confirmation";
+import { useSettingsStore } from "./stores/settings";
+import { useAgentEvents } from "./hooks/useAgentEvents";
 import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -17,6 +20,9 @@ function App() {
   const { isTerminalOpen, isEditorOpen } = useUIStore();
   const { workspacePath, setWorkspacePath } = useStore();
   const { setPendingRequest } = useConfirmationStore();
+  const { setDiffMode: _setDiffMode } = useSettingsStore();
+
+  useAgentEvents(); // Hook to listen for backend events
 
   useEffect(() => {
     // Default to CWD if no workspace is selected
@@ -26,16 +32,18 @@ function App() {
         .catch(console.error);
     }
   }, []);
-
+  
   useEffect(() => {
-    const unlisten = listen<any>("request-confirmation", (event) => {
+    // Listen for confirmation requests (for tools like write_file, bash)
+    const unlistenConfirm = listen<any>("request-confirmation", (event) => {
         setPendingRequest(event.payload);
     });
+    
     return () => {
-        unlisten.then(f => f());
+        unlistenConfirm.then(f => f());
     };
   }, []);
-
+  
   return (
     <AppShell>
        <SettingsModal />
@@ -58,11 +66,14 @@ function App() {
 
           {/* Secondary Focal Point: The Editor (On the right, toggleable) */}
           {isEditorOpen && (
-            <div className="w-[550px] flex-shrink-0 border-l border-[var(--border)] bg-[var(--bg-surface)] shadow-2xl z-20">
-              <div className="h-10 border-b border-[var(--border)] bg-[var(--bg-base)]/50 flex items-center px-4 justify-between">
+            <div className="w-[550px] flex-shrink-0 border-l border-[var(--border)] bg-[var(--bg-surface)] shadow-2xl z-20 flex flex-col">
+              <div className="h-10 border-b border-[var(--border)] bg-[var(--bg-base)]/50 flex items-center px-4 justify-between shrink-0">
                 <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Observation Window</span>
               </div>
-              <CodeEditor />
+              <TabList />
+              <div className="flex-1 overflow-hidden">
+                <CodeEditor />
+              </div>
             </div>
           )}
        </div>
