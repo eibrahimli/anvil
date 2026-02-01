@@ -75,6 +75,8 @@ pub struct PermissionConfig {
     #[serde(default)]
     pub write: ToolPermission,
     #[serde(default)]
+    pub skill: ToolPermission,
+    #[serde(default)]
     pub external_directory: Option<HashMap<String, Action>>,
 }
 
@@ -333,6 +335,7 @@ impl ConfigManager {
             edit: Self::merge_tool_permissions(&global.edit, &local.edit),
             read: Self::merge_tool_permissions(&global.read, &local.read),
             write: Self::merge_tool_permissions(&global.write, &local.write),
+            skill: Self::merge_tool_permissions(&global.skill, &local.skill),
             external_directory: local
                 .external_directory
                 .clone()
@@ -412,6 +415,12 @@ impl ConfigManager {
         // Default bash permissions: ask for everything
         config.permission.bash = ToolPermission {
             default: Action::Ask,
+            rules: Vec::new(),
+        };
+
+        // Default skill permissions: allow all skills
+        config.permission.skill = ToolPermission {
+            default: Action::Allow,
             rules: Vec::new(),
         };
 

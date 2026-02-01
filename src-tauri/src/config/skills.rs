@@ -1,13 +1,37 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Represents a discovered skill
+/// Represents a discovered skill (file only)
 #[derive(Debug, Clone)]
 pub struct Skill {
     pub name: String,
     pub path: PathBuf,
     pub source: SkillSource,
+}
+
+/// Fully loaded skill with parsed metadata and content
+#[derive(Debug, Clone)]
+pub struct LoadedSkill {
+    pub name: String,
+    pub path: PathBuf,
+    pub source: SkillSource,
+    pub metadata: SkillMetadata,
+    pub content: String, // Markdown content after frontmatter
+}
+
+/// YAML frontmatter from SKILL.md
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SkillMetadata {
+    pub name: String,
+    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compatibility: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -177,10 +201,125 @@ impl SkillDiscovery {
     }
 }
 
+/// Loads and parses SKILL.md files
+pub struct SkillLoader;
+
+impl SkillLoader {
+    /// Load a skill file and parse its contents
+    pub fn load(skill: &Skill) -> Result<LoadedSkill, SkillError> {
+        let content = fs::read_to_string(&skill.path).map_err(|e| SkillError::IoError(e.kind()))?;
+
+        Self::parse(&skill.name, &skill.path, skill.source.clone(), &content)
+    }
+
+    /// Parse skill content from string (useful for testing)
+    pub fn parse(
+        name: &str,
+        path: &Path,
+        source: SkillSource,
+        content: &str,
+    ) -> Result<LoadedSkill, SkillError> {
+        // Parse frontmatter and content
+        let (metadata, markdown_content) = Self::parse_frontmatter(content)?;
+
+        // Validate metadata
+        Self::validate_metadata(name, &metadata)?;
+
+        Ok(LoadedSkill {
+            name: name.to_string(),
+            path: path.to_path_buf(),
+            source,
+            metadata,
+            content: markdown_content.to_string(),
+        })
+    }
+
+    /// Parse YAML frontmatter from markdown content
+    /// Format: ---\nyaml here\n---\nmarkdown content
+    fn parse_frontmatter(content: &str) -> Result<(SkillMetadata, &str), SkillError> {
+        // Check if content starts with frontmatter delimiter
+        if !content.starts_with("---") {
+            return Err(SkillError::ParseError(
+                "Missing frontmatter delimiter '---'".to_string(),
+            ));
+        }
+
+        // Find the closing delimiter
+        let after_first_delim = &content[3..];
+        if let Some(end_pos) = after_first_delim.find("---") {
+            let yaml_content = &after_first_delim[..end_pos].trim();
+            let markdown_content = &after_first_delim[end_pos + 3..].trim_start();
+
+            // Parse YAML
+            let metadata: SkillMetadata = serde_yaml::from_str(yaml_content)
+                .map_err(|e| SkillError::ParseError(format!("Invalid YAML frontmatter: {}", e)))?;
+
+            Ok((metadata, markdown_content))
+        } else {
+            Err(SkillError::ParseError(
+                "Missing closing frontmatter delimiter '---'".to_string(),
+            ))
+        }
+    }
+
+    /// Validate skill metadata
+    fn validate_metadata(dir_name: &str, metadata: &SkillMetadata) -> Result<(), SkillError> {
+        // Check required fields
+        if metadata.name.is_empty() {
+            return Err(SkillError::InvalidMetadata(
+                "Missing required field: name".to_string(),
+            ));
+        }
+        if metadata.description.is_empty() {
+            return Err(SkillError::InvalidMetadata(
+                "Missing required field: description".to_string(),
+            ));
+        }
+
+        // Validate name matches directory name
+        if metadata.name != dir_name {
+            return Err(SkillError::InvalidMetadata(format!(
+                "Skill name '{}' doesn't match directory name '{}'",
+                metadata.name, dir_name
+            )));
+        }
+
+        // Validate name format
+        if !SkillDiscovery::is_valid_skill_name(&metadata.name) {
+            return Err(SkillError::InvalidMetadata(format!(
+                "Invalid skill name format: '{}'",
+                metadata.name
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Load all skills for a workspace
+    pub fn load_all(workspace_path: &Path) -> Result<Vec<LoadedSkill>, SkillError> {
+        let skills = SkillDiscovery::discover(workspace_path)?;
+        let mut loaded = Vec::new();
+
+        for skill in skills {
+            match Self::load(&skill) {
+                Ok(loaded_skill) => loaded.push(loaded_skill),
+                Err(e) => {
+                    eprintln!("Warning: Failed to load skill '{}': {}", skill.name, e);
+                    // Continue loading other skills
+                }
+            }
+        }
+
+        Ok(loaded)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum SkillError {
     IoError(std::io::ErrorKind),
     InvalidName(String),
+    ParseError(String),
+    InvalidMetadata(String),
 }
 
 impl std::fmt::Display for SkillError {
@@ -188,6 +327,8 @@ impl std::fmt::Display for SkillError {
         match self {
             SkillError::IoError(kind) => write!(f, "IO error: {:?}", kind),
             SkillError::InvalidName(msg) => write!(f, "Invalid skill name: {}", msg),
+            SkillError::ParseError(msg) => write!(f, "Parse error: {}", msg),
+            SkillError::InvalidMetadata(msg) => write!(f, "Invalid metadata: {}", msg),
         }
     }
 }
@@ -266,5 +407,121 @@ mod tests {
         assert_eq!(skills.len(), 1);
         // First found wins (alphabetically .anvil comes before .claude, so anvil wins)
         // Actually order depends on directory iteration order
+    }
+
+    #[test]
+    fn test_parse_frontmatter_valid() {
+        let content = r#"---
+name: git-release
+description: Create consistent releases and changelogs
+license: MIT
+compatibility: opencode
+metadata:
+  audience: maintainers
+  workflow: github
+---
+
+## What I do
+- Draft release notes from merged PRs
+- Propose version bump
+"#;
+
+        let (metadata, markdown) = SkillLoader::parse_frontmatter(content).unwrap();
+
+        assert_eq!(metadata.name, "git-release");
+        assert_eq!(
+            metadata.description,
+            "Create consistent releases and changelogs"
+        );
+        assert_eq!(metadata.license, Some("MIT".to_string()));
+        assert_eq!(metadata.compatibility, Some("opencode".to_string()));
+        assert!(metadata.metadata.is_some());
+
+        let meta = metadata.metadata.unwrap();
+        assert_eq!(meta.get("audience"), Some(&"maintainers".to_string()));
+        assert_eq!(meta.get("workflow"), Some(&"github".to_string()));
+
+        assert!(markdown.contains("## What I do"));
+        assert!(markdown.contains("Draft release notes"));
+    }
+
+    #[test]
+    fn test_parse_frontmatter_missing_delimiter() {
+        let content = "No frontmatter here\nJust markdown";
+        let result = SkillLoader::parse_frontmatter(content);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_skill_from_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let skill_path = temp_dir.path().join("SKILL.md");
+
+        let content = r#"---
+name: test-skill
+description: A test skill for unit testing
+---
+
+## What I do
+This is test content.
+"#;
+
+        fs::write(&skill_path, content).unwrap();
+
+        let skill = Skill {
+            name: "test-skill".to_string(),
+            path: skill_path.clone(),
+            source: SkillSource::Project,
+        };
+
+        let loaded = SkillLoader::load(&skill).unwrap();
+
+        assert_eq!(loaded.name, "test-skill");
+        assert_eq!(loaded.metadata.name, "test-skill");
+        assert_eq!(loaded.metadata.description, "A test skill for unit testing");
+        assert!(loaded.content.contains("## What I do"));
+    }
+
+    #[test]
+    fn test_load_skill_name_mismatch() {
+        let temp_dir = TempDir::new().unwrap();
+        let skill_path = temp_dir.path().join("SKILL.md");
+
+        let content = r#"---
+name: wrong-name
+description: Description here
+---
+
+Content here.
+"#;
+
+        fs::write(&skill_path, content).unwrap();
+
+        let result = SkillLoader::parse("test-skill", &skill_path, SkillSource::Project, content);
+        assert!(result.is_err()); // Should fail because name doesn't match directory
+    }
+
+    #[test]
+    fn test_load_skill_missing_required_fields() {
+        let temp_dir = TempDir::new().unwrap();
+        let skill_path = temp_dir.path().join("SKILL.md");
+
+        let content = r#"---
+name: test-skill
+---
+
+Content here.
+"#;
+
+        fs::write(&skill_path, content).unwrap();
+
+        let skill = Skill {
+            name: "test-skill".to_string(),
+            path: skill_path.clone(),
+            source: SkillSource::Project,
+        };
+
+        let result = SkillLoader::load(&skill);
+        assert!(result.is_err()); // Should fail because description is missing
     }
 }
