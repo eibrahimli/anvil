@@ -19,19 +19,43 @@ import "./App.css";
 
 function App() {
   const { isTerminalOpen, isEditorOpen } = useUIStore();
-  const { workspacePath, setWorkspacePath } = useStore();
+  const { setWorkspacePath } = useStore();
   const { setPendingRequest } = useConfirmationStore();
   const { setDiffMode: _setDiffMode } = useSettingsStore();
 
   useAgentEvents(); // Hook to listen for backend events
 
   useEffect(() => {
-    // Default to CWD if no workspace is selected
-    if (!workspacePath) {
-      invoke<string>("get_cwd")
-        .then(setWorkspacePath)
-        .catch(console.error);
-    }
+    // Restore last session if available
+    const restoreSession = async () => {
+      const { sessionId, workspacePath } = useStore.getState();
+      
+      if (sessionId && workspacePath) {
+        // Try to restore the session
+        try {
+          // Check if session still exists in backend
+          const session = await invoke<any>("load_session", { sessionId });
+          if (session) {
+            console.log(`Restored session ${sessionId} for workspace ${workspacePath}`);
+            return;
+          }
+        } catch (e) {
+          console.log("Previous session not found, creating new one");
+        }
+      }
+      
+      // If no persisted workspace, default to CWD
+      if (!workspacePath) {
+        try {
+          const cwd = await invoke<string>("get_cwd");
+          setWorkspacePath(cwd);
+        } catch (e) {
+          console.error("Failed to get CWD:", e);
+        }
+      }
+    };
+    
+    restoreSession();
   }, []);
   
   useEffect(() => {
