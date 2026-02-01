@@ -28,7 +28,8 @@ function App() {
   useEffect(() => {
     // Restore last session if available
     const restoreSession = async () => {
-      const { sessionId, workspacePath } = useStore.getState();
+      const state = useStore.getState();
+      const { sessionId, workspacePath } = state;
       
       if (sessionId && workspacePath) {
         // Try to restore the session
@@ -37,10 +38,14 @@ function App() {
           const session = await invoke<any>("load_session", { sessionId });
           if (session) {
             console.log(`Restored session ${sessionId} for workspace ${workspacePath}`);
+            // Session exists in SQLite but we need to recreate the backend agent
+            // The Chat component will handle this when user sends first message
             return;
           }
         } catch (e) {
-          console.log("Previous session not found, creating new one");
+          console.log("Previous session not found in database, clearing session ID");
+          // Clear the invalid session ID
+          state.setSessionId(null);
         }
       }
       
@@ -56,7 +61,7 @@ function App() {
     };
     
     restoreSession();
-  }, []);
+  }, [setWorkspacePath]);
   
   useEffect(() => {
     // Listen for confirmation requests (for tools like write_file, bash)

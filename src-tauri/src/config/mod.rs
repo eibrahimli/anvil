@@ -7,4 +7,4 @@ pub use manager::{
     PermissionRule, ProviderConfig, ToolPermission,
 };
 pub use watcher::start_config_watcher;
-pub use skills::{SkillDiscovery, Skill, SkillSource, SkillError};
+pub use skills::{SkillDiscovery, SkillLoader, Skill, LoadedSkill, SkillMetadata, SkillSource, SkillError};

@@ -133,7 +133,15 @@ export function Chat() {
                  updateLastMessageContent(response);
             }
         } catch (e) {
-            addMessage({ role: "System", content: `Error: ${e}` });
+            const errorMsg = String(e);
+            // If session not found, clear it and retry
+            if (errorMsg.includes("Session not found")) {
+                console.log("Session not found in backend, clearing and retrying...");
+                setSessionId(null);
+                addMessage({ role: "System", content: "Session expired. Please send your message again to create a new session." });
+            } else {
+                addMessage({ role: "System", content: `Error: ${e}` });
+            }
         } finally {
             if (unlisten) unlisten();
             setLoading(false);
