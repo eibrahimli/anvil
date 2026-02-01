@@ -695,3 +695,30 @@ pub async fn search(
     
     tool.execute(input).await.map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn list_skills(
+    workspace_path: String,
+) -> Result<serde_json::Value, String> {
+    use crate::config::SkillDiscovery;
+    
+    let path = PathBuf::from(&workspace_path);
+    let skills = SkillDiscovery::discover(&path)
+        .map_err(|e| e.to_string())?;
+    
+    let skill_list: Vec<serde_json::Value> = skills.iter().map(|skill| {
+        serde_json::json!({
+            "name": skill.name,
+            "path": skill.path.to_string_lossy().to_string(),
+            "source": match skill.source {
+                crate::config::SkillSource::Project => "project",
+                crate::config::SkillSource::Global => "global",
+            }
+        })
+    }).collect();
+    
+    Ok(serde_json::json!({
+        "skills": skill_list,
+        "count": skill_list.len()
+    }))
+}
