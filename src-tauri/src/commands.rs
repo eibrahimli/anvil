@@ -3,7 +3,7 @@ use crate::adapters::openai::OpenAIAdapter;
 use crate::adapters::gemini::GeminiAdapter;
 use crate::adapters::anthropic::AnthropicAdapter;
 use crate::adapters::ollama::OllamaAdapter;
-use crate::adapters::tools::{files::ReadFileTool, files::WriteFileTool, files::EditFileTool, bash::BashTool, git::GitTool, search::SearchTool, symbols::SymbolsTool, glob::GlobTool, list::ListTool, web::WebFetchTool, patch::PatchTool, question::QuestionTool, todo::TodoWriteTool, todoread::TodoReadTool, skill::SkillTool};
+use crate::adapters::tools::{files::ReadFileTool, files::WriteFileTool, files::EditFileTool, bash::BashTool, git::GitTool, search::SearchTool, symbols::SymbolsTool, glob::GlobTool, list::ListTool, web::WebFetchTool, patch::PatchTool, question::QuestionTool, todo::TodoWriteTool, todoread::TodoReadTool, skill::SkillTool, mcp_tool::load_mcp_tools};
 use crate::domain::agent::Agent;
 use crate::domain::orchestrator::{Orchestrator, Task, TaskStatus};
 use crate::domain::models::{AgentSession, AgentPermissions, ModelId, AgentMode, AgentRole};
@@ -109,8 +109,8 @@ pub async fn create_session(
     let config = config_manager.config();
     let permission_manager = Arc::new(tokio::sync::Mutex::new(config.permission.clone()));
 
-    let tools = vec![
-        Arc::new(ReadFileTool::new(path.clone(), permission_manager.clone())) as Arc<dyn crate::domain::ports::Tool>,
+    let mut tools: Vec<Arc<dyn crate::domain::ports::Tool>> = vec![
+        Arc::new(ReadFileTool::new(path.clone(), permission_manager.clone())),
         Arc::new(WriteFileTool::new(
             path.clone(),
             id.to_string(),
@@ -144,6 +144,16 @@ pub async fn create_session(
         Arc::new(TodoReadTool::new(path.clone())),
         Arc::new(SkillTool::new(path.clone(), permission_manager.clone())),
     ];
+
+    // Load MCP tools from configuration
+    match load_mcp_tools(&path).await {
+        Ok(mcp_tools) => {
+            tools.extend(mcp_tools);
+        }
+        Err(e) => {
+            println!("⚠️  Warning: Failed to load MCP tools: {}", e);
+        }
+    }
 
     let new_session = AgentSession {
         id,
@@ -370,8 +380,8 @@ pub async fn replay_session(
     let config = config_manager.config();
     let permission_manager = Arc::new(tokio::sync::Mutex::new(config.permission.clone()));
 
-    let tools = vec![
-        Arc::new(ReadFileTool::new(path.clone(), permission_manager.clone())) as Arc<dyn crate::domain::ports::Tool>,
+    let mut tools: Vec<Arc<dyn crate::domain::ports::Tool>> = vec![
+        Arc::new(ReadFileTool::new(path.clone(), permission_manager.clone())),
         Arc::new(WriteFileTool::new(
             path.clone(),
             uuid.to_string(),
@@ -405,6 +415,16 @@ pub async fn replay_session(
         Arc::new(TodoReadTool::new(path.clone())),
         Arc::new(SkillTool::new(path.clone(), permission_manager.clone())),
     ];
+
+    // Load MCP tools from configuration
+    match load_mcp_tools(&path).await {
+        Ok(mcp_tools) => {
+            tools.extend(mcp_tools);
+        }
+        Err(e) => {
+            println!("⚠️  Warning: Failed to load MCP tools: {}", e);
+        }
+    }
 
     let new_session = AgentSession {
         id: uuid,
@@ -483,8 +503,8 @@ pub async fn add_agent_to_orchestrator(
     let config = config_manager.config();
     let permission_manager = Arc::new(tokio::sync::Mutex::new(config.permission.clone()));
 
-    let tools = vec![
-        Arc::new(ReadFileTool::new(path.clone(), permission_manager.clone())) as Arc<dyn crate::domain::ports::Tool>,
+    let mut tools: Vec<Arc<dyn crate::domain::ports::Tool>> = vec![
+        Arc::new(ReadFileTool::new(path.clone(), permission_manager.clone())),
         Arc::new(WriteFileTool::new(
             path.clone(),
             agent_id.clone(),
@@ -518,6 +538,16 @@ pub async fn add_agent_to_orchestrator(
         Arc::new(TodoReadTool::new(path.clone())),
         Arc::new(SkillTool::new(path.clone(), permission_manager.clone())),
     ];
+
+    // Load MCP tools from configuration
+    match load_mcp_tools(&path).await {
+        Ok(mcp_tools) => {
+            tools.extend(mcp_tools);
+        }
+        Err(e) => {
+            println!("⚠️  Warning: Failed to load MCP tools: {}", e);
+        }
+    }
 
     orchestrator.add_agent(uuid, role_enum, model, tools, AgentMode::Build).await
 }
@@ -725,3 +755,363 @@ pub async fn list_skills(
         "count": skill_list.len()
     }))
 }
+
+/// Test MCP connection to a server
+#[tauri::command]
+pub async fn test_mcp_connection(
+    transport_type: String,
+    command: Option<Vec<String>>,
+    url: Option<String>,
+    env: Option<std::collections::HashMap<String, String>>,
+) -> Result<serde_json::Value, String> {
+    use crate::mcp::{McpClient, McpServerConfig, TransportType};
+    
+    let transport = match transport_type.to_lowercase().as_str() {
+        "stdio" => TransportType::Stdio,
+        "http" => TransportType::Http,
+        _ => return Err(format!("Invalid transport type: {}. Use 'stdio' or 'http'", transport_type)),
+    };
+    
+    let config = McpServerConfig {
+        server_name: "test-server".to_string(),
+        transport_type: transport,
+        command,
+        url,
+        env,
+        headers: None,
+        enabled: true,
+        timeout_ms: 30000,
+    };
+    
+    println!("🔌 Creating MCP client...");
+    let client = McpClient::new(config).await
+        .map_err(|e| format!("Failed to create MCP client: {}", e))?;
+    
+    println!("🔌 Initializing MCP connection...");
+    client.initialize().await
+        .map_err(|e| format!("Failed to initialize: {}", e))?;
+    
+    println!("✅ MCP connection initialized!");
+    
+    // Get capabilities
+    let caps = client.get_capabilities().await;
+    println!("📋 Server capabilities: {:?}", caps);
+    
+    // List tools
+    let tools = client.get_tools().await;
+    println!("📦 Found {} tools:", tools.len());
+    for tool in &tools {
+        println!("  - {}: {}", tool.name, tool.description);
+    }
+    
+    // Close connection
+    let _ = client.close().await;
+    println!("🔌 Connection closed");
+    
+    Ok(serde_json::json!({
+        "success": true,
+        "tool_count": tools.len(),
+        "tools": tools.iter().map(|t| serde_json::json!({
+            "name": t.name,
+            "description": t.description
+        })).collect::<Vec<_>>()
+    }))
+}
+
+/// List tools from an MCP server without full initialization
+#[tauri::command]
+pub async fn list_mcp_tools(
+    transport_type: String,
+    command: Option<Vec<String>>,
+    url: Option<String>,
+) -> Result<serde_json::Value, String> {
+    use crate::mcp::{McpClient, McpServerConfig, TransportType};
+    
+    let transport = match transport_type.to_lowercase().as_str() {
+        "stdio" => TransportType::Stdio,
+        "http" => TransportType::Http,
+        _ => return Err(format!("Invalid transport type: {}. Use 'stdio' or 'http'", transport_type)),
+    };
+    
+    let config = McpServerConfig {
+        server_name: "tools-server".to_string(),
+        transport_type: transport,
+        command,
+        url,
+        env: None,
+        headers: None,
+        enabled: true,
+        timeout_ms: 30000,
+    };
+    
+    let client = McpClient::new(config).await
+        .map_err(|e| format!("Failed to create MCP client: {}", e))?;
+    
+    client.initialize().await
+        .map_err(|e| format!("Failed to initialize: {}", e))?;
+    
+    let tools = client.get_tools().await;
+    
+    let _ = client.close().await;
+    
+    Ok(serde_json::json!({
+        "success": true,
+        "count": tools.len(),
+        "tools": tools.iter().map(|t| serde_json::json!({
+            "name": t.name,
+            "description": t.description
+        })).collect::<Vec<_>>()
+    }))
+}
+
+/// Load MCP configuration from anvil.json
+#[tauri::command]
+pub async fn load_mcp_config(
+    state: State<'_, AppState>,
+    workspace_path: String,
+) -> Result<serde_json::Value, String> {
+    let path = PathBuf::from(&workspace_path);
+    
+    let mut config_manager = crate::config::ConfigManager::new();
+    let _ = config_manager.load(Some(&path));
+    let config = config_manager.config();
+    
+    let mcp_config = config.mcp.as_ref();
+    
+    let enabled_servers: Vec<serde_json::Value> = if let Some(mcp) = mcp_config {
+        let servers = mcp.get_servers();
+        
+        servers.iter().filter(|s| s.enabled).map(|server| {
+            serde_json::json!({
+                "name": server.name,
+                "transport_type": match server.transport_type {
+                    crate::mcp::TransportType::Stdio => "stdio",
+                    crate::mcp::TransportType::Http => "http",
+                },
+                "enabled": server.enabled,
+                "timeout_ms": server.timeout_ms,
+                "command": server.command,
+                "url": server.url,
+                "env": server.env,
+                "headers": server.headers
+            })
+        }).collect()
+    } else {
+        Vec::new()
+    };
+    
+    let mcp_enabled = mcp_config
+        .and_then(|m| m.enabled)
+        .unwrap_or(false);
+    
+    Ok(serde_json::json!({
+        "enabled": mcp_enabled,
+        "server_count": enabled_servers.len(),
+        "servers": enabled_servers
+    }))
+}
+
+/// Get all MCP tools from configured servers
+#[tauri::command]
+pub async fn get_all_mcp_tools(
+    state: State<'_, AppState>,
+    workspace_path: String,
+) -> Result<serde_json::Value, String> {
+    let path = PathBuf::from(&workspace_path);
+    
+    let mut config_manager = crate::config::ConfigManager::new();
+    let _ = config_manager.load(Some(&path));
+    let config = config_manager.config();
+    
+    let mcp_config = config.mcp.as_ref();
+    
+    if mcp_config.is_none() || mcp_config.and_then(|m| m.enabled).unwrap_or(false) {
+        return Ok(serde_json::json!({
+            "enabled": false,
+            "tools": []
+        }));
+    }
+    
+    let mcp = mcp_config.unwrap();
+    let servers = mcp.get_servers();
+    let enabled_servers: Vec<_> = servers.iter().filter(|s| s.enabled).collect();
+    
+    let mut all_tools = Vec::new();
+    let mut tool_server_map = std::collections::HashMap::new();
+    
+    for server in &enabled_servers {
+        match server.transport_type {
+            crate::mcp::TransportType::Stdio => {
+                if let Some(command) = &server.command {
+                    let mcp_config = crate::mcp::McpServerConfig {
+                        server_name: server.name.clone(),
+                        transport_type: crate::mcp::TransportType::Stdio,
+                        command: Some(command.clone()),
+                        url: None,
+                        env: server.env.clone(),
+                        headers: None,
+                        enabled: true,
+                        timeout_ms: server.timeout_ms,
+                    };
+                    
+                    match crate::mcp::McpClient::new(mcp_config).await {
+                        Ok(client) => {
+                            if let Err(e) = client.initialize().await {
+                                println!("⚠️  Failed to connect to {}: {}", server.name, e);
+                            } else {
+                                let tools = client.get_tools().await;
+                                for tool in &tools {
+                                    let prefixed_name = format!("{}_{}", server.name, tool.name);
+                                    tool_server_map.insert(prefixed_name.clone(), server.name.clone());
+                                    all_tools.push(serde_json::json!({
+                                        "name": prefixed_name,
+                                        "original_name": tool.name,
+                                        "server": server.name,
+                                        "description": tool.description,
+                                        "input_schema": tool.input_schema
+                                    }));
+                                }
+                            }
+                            let _ = client.close().await;
+                        }
+                        Err(e) => {
+                            println!("⚠️  Failed to create client for {}: {}", server.name, e);
+                        }
+                    }
+                }
+            }
+            crate::mcp::TransportType::Http => {
+                // HTTP servers support - similar to stdio but with URL
+                if let Some(url) = &server.url {
+                    let mcp_config = crate::mcp::McpServerConfig {
+                        server_name: server.name.clone(),
+                        transport_type: crate::mcp::TransportType::Http,
+                        command: None,
+                        url: Some(url.clone()),
+                        env: None,
+                        headers: server.headers.clone(),
+                        enabled: true,
+                        timeout_ms: server.timeout_ms,
+                    };
+                    
+                    match crate::mcp::McpClient::new(mcp_config).await {
+                        Ok(client) => {
+                            if let Err(e) = client.initialize().await {
+                                println!("⚠️  Failed to connect to {}: {}", server.name, e);
+                            } else {
+                                let tools = client.get_tools().await;
+                                for tool in &tools {
+                                    let prefixed_name = format!("{}_{}", server.name, tool.name);
+                                    tool_server_map.insert(prefixed_name.clone(), server.name.clone());
+                                    all_tools.push(serde_json::json!({
+                                        "name": prefixed_name,
+                                        "original_name": tool.name,
+                                        "server": server.name,
+                                        "description": tool.description,
+                                        "input_schema": tool.input_schema
+                                    }));
+                                }
+                            }
+                            let _ = client.close().await;
+                        }
+                        Err(e) => {
+                            println!("⚠️  Failed to create client for {}: {}", server.name, e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok(serde_json::json!({
+        "enabled": true,
+        "tool_count": all_tools.len(),
+        "servers": enabled_servers.len(),
+        "tools": all_tools
+    }))
+}
+
+/// Call an MCP tool with arguments
+#[tauri::command]
+pub async fn call_mcp_tool(
+    transport_type: String,
+    command: Option<Vec<String>>,
+    url: Option<String>,
+    tool_name: String,
+    arguments: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    use crate::mcp::{McpClient, McpServerConfig, TransportType};
+    
+    let transport = match transport_type.to_lowercase().as_str() {
+        "stdio" => TransportType::Stdio,
+        "http" => TransportType::Http,
+        _ => return Err(format!("Invalid transport type: {}. Use 'stdio' or 'http'", transport_type)),
+    };
+    
+    let config = McpServerConfig {
+        server_name: "tool-caller".to_string(),
+        transport_type: transport,
+        command,
+        url,
+        env: None,
+        headers: None,
+        enabled: true,
+        timeout_ms: 30000,
+    };
+    
+    let client = McpClient::new(config).await
+        .map_err(|e| format!("Failed to create MCP client: {}", e))?;
+    
+    client.initialize().await
+        .map_err(|e| format!("Failed to initialize: {}", e))?;
+    
+    let result = client.call_tool(&tool_name, arguments).await
+        .map_err(|e| format!("Failed to call tool: {}", e))?;
+    
+    let _ = client.close().await;
+    
+    Ok(serde_json::json!({
+        "success": true,
+        "result": result
+    }))
+}
+
+/// Save MCP configuration to anvil.json
+#[tauri::command]
+pub async fn save_mcp_config(
+    workspace_path: String,
+    config: serde_json::Value,
+) -> Result<(), String> {
+    let path = PathBuf::from(&workspace_path).join(".anvil").join("anvil.json");
+    
+    // Ensure directory exists
+    if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+    }
+    
+    // Load existing config or create new
+    let mut root_config: serde_json::Value = if path.exists() {
+        let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&content).map_err(|e| e.to_string())?
+    } else {
+        serde_json::json!({})
+    };
+    
+    // Update MCP section
+    // config received is the McpConfig object (enabled, servers, etc.)
+    // We need to put it under "mcp" key
+    if let Some(obj) = root_config.as_object_mut() {
+        obj.insert("mcp".to_string(), config);
+    } else {
+        return Err("Invalid anvil.json format: root is not an object".to_string());
+    }
+    
+    // Write back
+    let json = serde_json::to_string_pretty(&root_config).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    
+    Ok(())
+}
+

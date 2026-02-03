@@ -162,11 +162,178 @@ pub struct LspConfig {
     pub servers: Option<Vec<String>>,
 }
 
+/// MCP tool filtering configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpToolFilter {
+    /// List of tool names to include (if empty, all tools are included)
+    #[serde(default)]
+    pub include: Vec<String>,
+    /// List of tool names to exclude (takes precedence over include)
+    #[serde(default)]
+    pub exclude: Vec<String>,
+    /// Default behavior for tools not in include/exclude lists
+    #[serde(default = "default_tool_filter_default")]
+    pub default: bool,
+}
+
+fn default_tool_filter_default() -> bool {
+    true
+}
+
+impl Default for McpToolFilter {
+    fn default() -> Self {
+        Self {
+            include: Vec::new(),
+            exclude: Vec::new(),
+            default: true,
+        }
+    }
+}
+
+impl McpToolFilter {
+    /// Check if a tool is enabled based on the filter rules
+    pub fn is_tool_enabled(&self, tool_name: &str) -> bool {
+        // Exclude takes precedence
+        if self.exclude.contains(&tool_name.to_string()) {
+            return false;
+        }
+
+        // If include list is not empty, tool must be in it
+        if !self.include.is_empty() {
+            return self.include.contains(&tool_name.to_string());
+        }
+
+        // Default behavior
+        self.default
+    }
+}
+
 /// MCP (Model Context Protocol) configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct McpConfig {
     pub enabled: Option<bool>,
-    pub servers: Option<Vec<String>>,
+    pub servers: Option<serde_json::Value>,
+    /// Tool filtering configuration per server (server_name -> tool_filter)
+    #[serde(default)]
+    pub tool_filters: HashMap<String, McpToolFilter>,
+    /// Per-agent MCP overrides (agent_name -> McpConfig)
+    #[serde(default)]
+    pub agent_overrides: HashMap<String, Box<McpConfig>>,
+}
+
+impl McpConfig {
+    /// Get effective MCP config for a specific agent
+    pub fn for_agent(&self, agent_name: &str) -> &Self {
+        self.agent_overrides
+            .get(agent_name)
+            .map(|boxed| boxed.as_ref())
+            .unwrap_or(self)
+    }
+
+    /// Get tool filter for a specific server
+    pub fn get_tool_filter(&self, server_name: &str) -> &McpToolFilter {
+        self.tool_filters
+            .get(server_name)
+            .unwrap_or(&DEFAULT_TOOL_FILTER)
+    }
+}
+
+use once_cell::sync::Lazy;
+
+static DEFAULT_TOOL_FILTER: Lazy<McpToolFilter> = Lazy::new(McpToolFilter::default);
+
+/// Individual MCP server configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpServerConfig {
+    #[serde(rename = "type")]
+    pub transport_type: String,
+    pub command: Option<Vec<String>>,
+    pub url: Option<String>,
+    pub environment: Option<std::collections::HashMap<String, String>>,
+    pub headers: Option<std::collections::HashMap<String, String>>,
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_timeout")]
+    pub timeout: u64,
+}
+
+fn default_timeout() -> u64 {
+    30000
+}
+
+/// Resolved MCP server configuration with actual transport type
+#[derive(Debug, Clone)]
+pub struct ResolvedMcpServer {
+    pub name: String,
+    pub transport_type: crate::mcp::TransportType,
+    pub command: Option<Vec<String>>,
+    pub url: Option<String>,
+    pub env: Option<std::collections::HashMap<String, String>>,
+    pub headers: Option<std::collections::HashMap<String, String>>,
+    pub enabled: bool,
+    pub timeout_ms: u64,
+}
+
+impl McpConfig {
+    /// Parse MCP servers from config value
+    pub fn get_servers(&self) -> Vec<ResolvedMcpServer> {
+        let mut servers = Vec::new();
+
+        if let Some(servers_value) = &self.servers {
+            if let Some(servers_obj) = servers_value.as_object() {
+                for (name, server_config_value) in servers_obj {
+                    if let Ok(server_config) =
+                        serde_json::from_value::<McpServerConfig>(server_config_value.clone())
+                    {
+                        let transport_type = match server_config.transport_type.as_str() {
+                            "local" => crate::mcp::TransportType::Stdio,
+                            "remote" => crate::mcp::TransportType::Http,
+                            _ => continue, // Skip invalid transport types
+                        };
+
+                        let env = server_config.environment.as_ref().map(|env_map| {
+                            let mut resolved = std::collections::HashMap::new();
+                            for (key, value) in env_map {
+                                resolved.insert(key.clone(), resolve_env_var(value));
+                            }
+                            resolved
+                        });
+
+                        let headers = server_config.headers.as_ref().map(|headers_map| {
+                            let mut resolved = std::collections::HashMap::new();
+                            for (key, value) in headers_map {
+                                resolved.insert(key.clone(), resolve_env_var(value));
+                            }
+                            resolved
+                        });
+
+                        servers.push(ResolvedMcpServer {
+                            name: name.clone(),
+                            transport_type,
+                            command: server_config.command,
+                            url: server_config.url,
+                            env,
+                            headers,
+                            enabled: server_config.enabled,
+                            timeout_ms: server_config.timeout,
+                        });
+                    }
+                }
+            }
+        }
+
+        servers
+    }
+}
+
+/// Resolve environment variable placeholders like {env:VAR_NAME}
+fn resolve_env_var(value: &str) -> String {
+    if value.starts_with("{env:") && value.ends_with('}') {
+        let var_name = &value[5..value.len() - 1];
+        std::env::var(var_name).unwrap_or_else(|_| value.to_string())
+    } else {
+        value.to_string()
+    }
 }
 
 /// Main configuration structure
@@ -314,9 +481,9 @@ impl ConfigManager {
                 merged.lsp = local.lsp.clone();
             }
 
-            // Override MCP config
+            // Merge MCP config (local takes precedence but merges deeply)
             if local.mcp.is_some() {
-                merged.mcp = local.mcp.clone();
+                merged.mcp = Self::merge_mcp_config(&merged.mcp, &local.mcp);
             }
         }
 
@@ -326,6 +493,42 @@ impl ConfigManager {
         }
 
         merged
+    }
+
+    /// Merge two MCP configurations (local takes precedence)
+    fn merge_mcp_config(
+        global: &Option<McpConfig>,
+        local: &Option<McpConfig>,
+    ) -> Option<McpConfig> {
+        if local.is_none() {
+            return global.clone();
+        }
+
+        if global.is_none() {
+            return local.clone();
+        }
+
+        let global = global.as_ref().unwrap();
+        let local = local.as_ref().unwrap();
+
+        // Merge tool_filters: local overrides per-server
+        let mut merged_tool_filters = global.tool_filters.clone();
+        for (key, value) in &local.tool_filters {
+            merged_tool_filters.insert(key.clone(), value.clone());
+        }
+
+        // Merge agent_overrides: local overrides per-agent
+        let mut merged_agent_overrides = global.agent_overrides.clone();
+        for (key, value) in &local.agent_overrides {
+            merged_agent_overrides.insert(key.clone(), value.clone());
+        }
+
+        Some(McpConfig {
+            enabled: local.enabled.or(global.enabled),
+            servers: local.servers.clone().or_else(|| global.servers.clone()),
+            tool_filters: merged_tool_filters,
+            agent_overrides: merged_agent_overrides,
+        })
     }
 
     /// Merge two permission configurations
@@ -654,5 +857,205 @@ mod tests {
         let config = manager.config();
         assert_eq!(config.model, Some("claude-3".to_string()));
         assert!(config.provider.contains_key("anthropic"));
+    }
+
+    #[test]
+    fn test_mcp_tool_filter_include_exclude() {
+        let filter = McpToolFilter {
+            include: vec!["tool1".to_string(), "tool2".to_string()],
+            exclude: vec!["tool2".to_string()], // exclude takes precedence
+            default: true,
+        };
+
+        // Included tool
+        assert!(filter.is_tool_enabled("tool1"));
+        // Excluded tool (takes precedence over include)
+        assert!(!filter.is_tool_enabled("tool2"));
+        // Not in include list, but default is true
+        assert!(!filter.is_tool_enabled("tool3"));
+
+        let filter2 = McpToolFilter {
+            include: vec![],
+            exclude: vec!["bad_tool".to_string()],
+            default: true,
+        };
+
+        // Default is true, not excluded
+        assert!(filter2.is_tool_enabled("any_tool"));
+        // Excluded
+        assert!(!filter2.is_tool_enabled("bad_tool"));
+    }
+
+    #[test]
+    fn test_mcp_config_for_agent() {
+        let mut agent_overrides = HashMap::new();
+        let agent_config = McpConfig {
+            enabled: Some(false),
+            servers: None,
+            tool_filters: HashMap::new(),
+            agent_overrides: HashMap::new(),
+        };
+        agent_overrides.insert("special_agent".to_string(), Box::new(agent_config));
+
+        let global_config = McpConfig {
+            enabled: Some(true),
+            servers: Some(serde_json::json!({})),
+            tool_filters: HashMap::new(),
+            agent_overrides,
+        };
+
+        // Regular agent uses global config
+        let effective = global_config.for_agent("default_agent");
+        assert_eq!(effective.enabled, Some(true));
+
+        // Special agent uses override
+        let effective = global_config.for_agent("special_agent");
+        assert_eq!(effective.enabled, Some(false));
+    }
+
+    #[test]
+    fn test_mcp_config_get_tool_filter() {
+        let mut tool_filters = HashMap::new();
+        tool_filters.insert(
+            "github".to_string(),
+            McpToolFilter {
+                include: vec!["create_issue".to_string()],
+                exclude: vec![],
+                default: false,
+            },
+        );
+
+        let config = McpConfig {
+            enabled: Some(true),
+            servers: None,
+            tool_filters,
+            agent_overrides: HashMap::new(),
+        };
+
+        // Get filter for configured server
+        let github_filter = config.get_tool_filter("github");
+        assert!(github_filter.is_tool_enabled("create_issue"));
+        assert!(!github_filter.is_tool_enabled("delete_repo"));
+
+        // Get filter for unconfigured server (returns default)
+        let default_filter = config.get_tool_filter("unknown");
+        // Default filter should have default=true, empty include/exclude
+        assert!(default_filter.default);
+        assert!(default_filter.is_tool_enabled("any_tool"));
+    }
+
+    #[test]
+    fn test_merge_mcp_config() {
+        let global = Some(McpConfig {
+            enabled: Some(true),
+            servers: Some(serde_json::json!({"server1": {}})),
+            tool_filters: {
+                let mut map = HashMap::new();
+                map.insert(
+                    "server1".to_string(),
+                    McpToolFilter {
+                        include: vec!["tool1".to_string()],
+                        exclude: vec![],
+                        default: true,
+                    },
+                );
+                map
+            },
+            agent_overrides: {
+                let mut map = HashMap::new();
+                map.insert(
+                    "agent1".to_string(),
+                    Box::new(McpConfig {
+                        enabled: Some(false),
+                        servers: None,
+                        tool_filters: HashMap::new(),
+                        agent_overrides: HashMap::new(),
+                    }),
+                );
+                map
+            },
+        });
+
+        let local = Some(McpConfig {
+            enabled: Some(false),                              // Override global
+            servers: Some(serde_json::json!({"server2": {}})), // Override global
+            tool_filters: {
+                let mut map = HashMap::new();
+                map.insert(
+                    "server2".to_string(), // New server filter
+                    McpToolFilter {
+                        include: vec!["tool2".to_string()],
+                        exclude: vec![],
+                        default: true,
+                    },
+                );
+                map
+            },
+            agent_overrides: {
+                let mut map = HashMap::new();
+                map.insert(
+                    "agent2".to_string(), // New agent override
+                    Box::new(McpConfig {
+                        enabled: Some(true),
+                        servers: None,
+                        tool_filters: HashMap::new(),
+                        agent_overrides: HashMap::new(),
+                    }),
+                );
+                map
+            },
+        });
+
+        let merged = ConfigManager::merge_mcp_config(&global, &local).unwrap();
+
+        // Local enabled overrides global
+        assert_eq!(merged.enabled, Some(false));
+        // Local servers override global (not merged)
+        assert!(merged.servers.as_ref().unwrap().get("server2").is_some());
+        // Both tool filters should be present
+        assert!(merged.tool_filters.contains_key("server1"));
+        assert!(merged.tool_filters.contains_key("server2"));
+        // Both agent overrides should be present
+        assert!(merged.agent_overrides.contains_key("agent1"));
+        assert!(merged.agent_overrides.contains_key("agent2"));
+    }
+
+    #[test]
+    fn test_mcp_config_json_parsing() {
+        let json_str = r#"{
+            "enabled": true,
+            "servers": {
+                "github": {
+                    "type": "local",
+                    "command": ["npx", "-y", "@modelcontextprotocol/server-git"],
+                    "enabled": true,
+                    "timeout": 30000
+                }
+            },
+            "tool_filters": {
+                "github": {
+                    "include": ["create_issue", "list_repos"],
+                    "exclude": ["delete_repo"],
+                    "default": false
+                }
+            },
+            "agent_overrides": {
+                "readonly_agent": {
+                    "enabled": false
+                }
+            }
+        }"#;
+
+        let mcp_config: McpConfig = serde_json::from_str(json_str).unwrap();
+
+        assert_eq!(mcp_config.enabled, Some(true));
+        assert!(mcp_config.servers.is_some());
+        assert_eq!(mcp_config.tool_filters.len(), 1);
+        assert_eq!(mcp_config.agent_overrides.len(), 1);
+
+        let github_filter = mcp_config.tool_filters.get("github").unwrap();
+        assert_eq!(github_filter.include.len(), 2);
+        assert_eq!(github_filter.exclude.len(), 1);
+        assert!(!github_filter.default);
     }
 }

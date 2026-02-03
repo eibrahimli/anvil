@@ -1,4 +1,4 @@
-import { Files, Settings, TerminalSquare, Plus, Clock, Users, Search } from 'lucide-react';
+import { Files, Settings, TerminalSquare, Plus, Clock, Users, Zap, Plug } from 'lucide-react';
 import { useUIStore } from '../../stores/ui';
 import { useStore } from '../../store';
 import { useProviderStore } from '../../stores/provider';
@@ -130,11 +130,19 @@ export function ActivityBar() {
             </IconWrapper>
 
             <IconWrapper 
-                active={activeSidebarTab === 'search'} 
-                onClick={() => setActiveSidebarTab(activeSidebarTab === 'search' ? null : 'search')}
-                title="Global Search"
+                active={activeSidebarTab === 'skills'} 
+                onClick={() => setActiveSidebarTab(activeSidebarTab === 'skills' ? null : 'skills')}
+                title="Skills & Capabilities"
             >
-                <Search size={22} strokeWidth={1.5} />
+                <Zap size={22} strokeWidth={1.5} />
+            </IconWrapper>
+
+            <IconWrapper 
+                active={activeSidebarTab === 'mcp'} 
+                onClick={() => setActiveSidebarTab(activeSidebarTab === 'mcp' ? null : 'mcp')}
+                title="MCP Servers"
+            >
+                <Plug size={22} strokeWidth={1.5} />
             </IconWrapper>
 
             <IconWrapper 
