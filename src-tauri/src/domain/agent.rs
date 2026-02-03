@@ -82,12 +82,29 @@ impl Agent {
                 "You are in BUILD mode. You are an autonomous coding agent. Execute tools to fulfill the request.",
         };
 
+        // Build skills information for system prompt
+        let skills_info = self.build_skills_info().await;
+        
         // Find existing system message or prepend one
         let system_msg_idx = self.session.messages.iter().position(|m| m.role == Role::System);
         let system_content = format!(
-            "You are Anvil, an advanced AI coding agent.\n\n{}\n\n{}\n\nPrevious instructions remain active.",
+            "You are Anvil, an advanced AI coding agent.
+
+{}
+
+{}
+
+{}
+
+IMPORTANT RULES:
+1. When asked about available tools, ONLY list them. DO NOT execute them.
+2. Only execute tools when explicitly requested or when necessary to solve a user task.
+3. Never edit or write files unless you are sure the user wants you to modify the codebase.
+
+Previous instructions remain active.",
             mode_instruction,
-            context_summary
+            context_summary,
+            skills_info
         );
 
         if let Some(idx) = system_msg_idx {
@@ -275,12 +292,29 @@ impl Agent {
                 "You are in BUILD mode. You are an autonomous coding agent. Execute tools to fulfill the request.",
         };
 
+        // Build skills information for system prompt
+        let skills_info = self.build_skills_info().await;
+        
         // Find existing system message or prepend one
         let system_msg_idx = self.session.messages.iter().position(|m| m.role == Role::System);
         let system_content = format!(
-            "You are Anvil, an advanced AI coding agent.\n\n{}\n\n{}\n\nPrevious instructions remain active.",
+            "You are Anvil, an advanced AI coding agent.
+
+{}
+
+{}
+
+{}
+
+IMPORTANT RULES:
+1. When asked about available tools, ONLY list them. DO NOT execute them.
+2. Only execute tools when explicitly requested or when necessary to solve a user task.
+3. Never edit or write files unless you are sure the user wants you to modify the codebase.
+
+Previous instructions remain active.",
             mode_instruction,
-            context_summary
+            context_summary,
+            skills_info
         );
 
         if let Some(idx) = system_msg_idx {
@@ -445,6 +479,44 @@ impl Agent {
                 return Ok(res.content);
             }
 
+        }
+    }
+    
+    /// Build skills information for system prompt
+    async fn build_skills_info(&self) -> String {
+        use crate::config::{SkillDiscovery, SkillLoader};
+        
+        match SkillDiscovery::discover(&self.session.workspace_path) {
+            Ok(skills) if !skills.is_empty() => {
+                let mut skills_list = Vec::new();
+                
+                for skill in skills {
+                    // Check permission
+                    let config = self.permission_manager.lock().await;
+                    let action = config.skill.evaluate(&skill.name);
+                    drop(config); // Release lock
+                    
+                    if action != crate::config::Action::Deny {
+                        // Try to get description
+                        let desc = match SkillLoader::load(&skill) {
+                            Ok(loaded) => loaded.metadata.description,
+                            Err(_) => "No description".to_string()
+                        };
+                        
+                        skills_list.push(format!("- {}: {}", skill.name, desc));
+                    }
+                }
+                
+                if skills_list.is_empty() {
+                    return String::new();
+                }
+                
+                format!(
+                    "## Available Skills\nYou can use the 'skill' tool to load these capabilities:\n{}\n\nTo use a skill, invoke: skill({{ action: 'invoke', skill_name: 'skill-name' }})",
+                    skills_list.join("\n")
+                )
+            }
+            _ => String::new()
         }
     }
 }

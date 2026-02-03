@@ -11,3 +11,4 @@ pub mod question;
 pub mod todo;
 pub mod todoread;
 pub mod skill;
+pub mod mcp_tool;
