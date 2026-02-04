@@ -1,10 +1,11 @@
-import { X, Plus, Users, Play, Trash2, RefreshCw, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { X, Plus, Users, Play, Trash2, RefreshCw, CheckCircle, AlertCircle, Loader2, AlertTriangle } from 'lucide-react';
 import { useOrchestratorStore, Agent, Task } from '../../stores/orchestrator';
 import { useUIStore } from '../../stores/ui';
 import { useProviderStore } from '../../stores/provider';
 import clsx from 'clsx';
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { ConfirmDialog } from '../common/ConfirmDialog';
 
 import { useStore } from '../../store';
 
@@ -21,6 +22,7 @@ export function OrchestratorPanel({ onClose }: OrchestratorPanelProps) {
     const { activeModelId, activeProviderId, apiKeys } = useProviderStore();
     const { workspacePath } = useStore();
     const [processing, setProcessing] = useState(false);
+    const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
 
     // Initialize backend orchestrator on mount
     useState(() => {
@@ -147,12 +149,7 @@ export function OrchestratorPanel({ onClose }: OrchestratorPanelProps) {
                             )}
                         </button>
                         <button
-                            onClick={() => {
-                                if (confirm('Clear all agents and tasks?')) {
-                                    clearAgents();
-                                    clearTasks();
-                                }
-                            }}
+                            onClick={() => setClearConfirmOpen(true)}
                             className="p-1.5 hover:bg-[var(--bg-elevated)] rounded-lg text-zinc-400 hover:text-red-500 transition-all"
                             title="Clear All"
                         >
@@ -291,6 +288,22 @@ export function OrchestratorPanel({ onClose }: OrchestratorPanelProps) {
                     </div>
                 </div>
             </div>
+            <ConfirmDialog
+                open={clearConfirmOpen}
+                title="Clear Orchestrator"
+                subtitle="Remove all agents and tasks"
+                description="Are you sure you want to clear all agents and tasks? This cannot be undone."
+                confirmLabel="Clear"
+                cancelLabel="Cancel"
+                confirmTone="danger"
+                icon={<AlertTriangle size={20} />}
+                onCancel={() => setClearConfirmOpen(false)}
+                onConfirm={() => {
+                    clearAgents();
+                    clearTasks();
+                    setClearConfirmOpen(false);
+                }}
+            />
         </div>
     );
 }

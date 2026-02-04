@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-type SidebarTab = 'explorer' | 'search' | 'settings' | 'rules' | 'skills' | 'mcp' | null;
+type SidebarTab = 'explorer' | 'search' | 'workflows' | 'settings' | 'rules' | 'skills' | 'mcp' | null;
 export type AgentMode = 'plan' | 'build' | 'research';
 export type Temperature = 'low' | 'medium' | 'high';
 

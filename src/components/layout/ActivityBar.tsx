@@ -1,4 +1,4 @@
-import { Files, Settings, TerminalSquare, Plus, Users, Zap, Plug, Search } from 'lucide-react';
+import { Files, Settings, TerminalSquare, Plus, Users, Zap, Plug, Search, Layers } from 'lucide-react';
 import { useUIStore } from '../../stores/ui';
 import { useStore } from '../../store';
 import { useProviderStore } from '../../stores/provider';
@@ -135,6 +135,14 @@ export function ActivityBar() {
                 title="Global Search"
             >
                 <Search size={22} strokeWidth={1.5} />
+            </IconWrapper>
+
+            <IconWrapper 
+                active={activeSidebarTab === 'workflows'} 
+                onClick={() => setActiveSidebarTab(activeSidebarTab === 'workflows' ? null : 'workflows')}
+                title="Workflows"
+            >
+                <Layers size={22} strokeWidth={1.5} />
             </IconWrapper>
 
             <IconWrapper 

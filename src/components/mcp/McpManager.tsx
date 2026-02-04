@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
-import { Plus, RefreshCw, Server, Play, Power, Trash2, X, ChevronDown } from "lucide-react";
+import { Plus, RefreshCw, Server, Play, Power, Trash2, X, ChevronDown, AlertTriangle } from "lucide-react";
 import clsx from "clsx";
+import { ConfirmDialog } from "../common/ConfirmDialog";
 
 interface McpServer {
   name: string;
@@ -25,6 +26,9 @@ export function McpManager() {
   const [loading, setLoading] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<Record<string, "connected" | "disconnected" | "connecting" | "error">>({});
   const [showAddModal, setShowAddModal] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ show: boolean; name: string | null }>(
+    { show: false, name: null }
+  );
 
   const loadConfig = async () => {
     if (!workspacePath) return;
@@ -78,10 +82,19 @@ export function McpManager() {
     saveConfig({ ...config, servers: newServers });
   };
 
-  const deleteServer = (serverName: string) => {
-    if (!config || !confirm(`Delete server ${serverName}?`)) return;
-    const newServers = config.servers.filter(s => s.name !== serverName);
+  const askDeleteServer = (serverName: string) => {
+    setDeleteConfirm({ show: true, name: serverName });
+  };
+
+  const handleCancelDelete = () => {
+    setDeleteConfirm({ show: false, name: null });
+  };
+
+  const handleConfirmDelete = () => {
+    if (!config || !deleteConfirm.name) return;
+    const newServers = config.servers.filter(s => s.name !== deleteConfirm.name);
     saveConfig({ ...config, servers: newServers });
+    setDeleteConfirm({ show: false, name: null });
   };
 
   useEffect(() => {
@@ -161,7 +174,7 @@ export function McpManager() {
                     <Power size={14} />
                   </button>
                   <button 
-                    onClick={() => deleteServer(server.name)}
+                    onClick={() => askDeleteServer(server.name)}
                     className="p-1.5 hover:bg-zinc-800 rounded text-zinc-500 hover:text-red-400"
                     title="Delete"
                   >
@@ -227,6 +240,19 @@ export function McpManager() {
           }} 
         />
       )}
+
+      <ConfirmDialog
+        open={deleteConfirm.show}
+        title="Delete MCP Server"
+        subtitle={deleteConfirm.name || undefined}
+        description="Are you sure you want to delete this MCP server? This cannot be undone."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        confirmTone="danger"
+        icon={<AlertTriangle size={20} />}
+        onCancel={handleCancelDelete}
+        onConfirm={handleConfirmDelete}
+      />
     </div>
   );
 }

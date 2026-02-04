@@ -9,6 +9,7 @@ use crate::domain::orchestrator::{Orchestrator, Task, TaskStatus};
 use crate::domain::models::{AgentSession, AgentPermissions, ModelId, AgentMode, AgentRole};
 use crate::domain::ports::ModelAdapter;
 use crate::config::manager::{Config, PermissionConfig};
+use crate::workflows::Workflow;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{State, Emitter};
@@ -1157,6 +1158,60 @@ pub async fn save_permission_config(
     std::fs::write(path, json).map_err(|e| e.to_string())?;
     
     Ok(())
+}
+
+#[tauri::command]
+pub async fn list_workflows(
+    workspace_path: String,
+) -> Result<serde_json::Value, String> {
+    let path = PathBuf::from(&workspace_path);
+    let workflows = crate::workflows::list_workflows(&path).await?;
+    let items: Vec<serde_json::Value> = workflows
+        .into_iter()
+        .map(|workflow| {
+            serde_json::json!({
+                "id": workflow.id,
+                "name": workflow.name,
+                "description": workflow.description,
+                "version": workflow.version,
+                "created_at": workflow.created_at,
+                "updated_at": workflow.updated_at,
+                "steps": workflow.steps.len()
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({
+        "workflows": items,
+        "count": items.len()
+    }))
+}
+
+#[tauri::command]
+pub async fn load_workflow(
+    workspace_path: String,
+    workflow_id: String,
+) -> Result<Workflow, String> {
+    let path = PathBuf::from(&workspace_path);
+    crate::workflows::load_workflow(&path, &workflow_id).await
+}
+
+#[tauri::command]
+pub async fn save_workflow(
+    workspace_path: String,
+    workflow: Workflow,
+) -> Result<Workflow, String> {
+    let path = PathBuf::from(&workspace_path);
+    crate::workflows::save_workflow(&path, workflow).await
+}
+
+#[tauri::command]
+pub async fn delete_workflow(
+    workspace_path: String,
+    workflow_id: String,
+) -> Result<(), String> {
+    let path = PathBuf::from(&workspace_path);
+    crate::workflows::delete_workflow(&path, &workflow_id).await
 }
 
 /// Load permission configuration from anvil.json

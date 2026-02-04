@@ -7,6 +7,7 @@ pub mod terminal;
 pub mod storage;
 pub mod config;
 pub mod mcp;
+pub mod workflows;
 
 use app_state::AppState;
 use tauri::Manager;
@@ -69,7 +70,11 @@ pub fn run() {
         commands::get_all_mcp_tools,
         commands::call_mcp_tool,
         commands::save_permission_config,
-        commands::save_mcp_config
+        commands::save_mcp_config,
+        commands::list_workflows,
+        commands::load_workflow,
+        commands::save_workflow,
+        commands::delete_workflow
      ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -3,9 +3,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
 import { useProviderStore } from "../../stores/provider";
 import { useUIStore } from "../../stores/ui";
-import { Plus, Clock, MessageSquare, Trash2, AlertTriangle, X, Check } from "lucide-react";
+import { Plus, Clock, MessageSquare, Trash2, AlertTriangle } from "lucide-react";
 import clsx from "clsx";
 import { formatDistanceToNow } from "date-fns";
+import { ConfirmDialog } from "../common/ConfirmDialog";
 
 interface Session {
   id: string;
@@ -208,50 +209,18 @@ export function SessionList() {
         )}
       </div>
 
-      {/* Delete Confirmation Modal */}
-      {deleteConfirm.show && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={handleCancelDelete}>
-          <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl shadow-2xl w-[400px] overflow-hidden animate-in fade-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
-            {/* Header */}
-            <div className="h-14 border-b border-[var(--border)] flex items-center justify-between px-6 bg-[var(--bg-base)]">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-red-500/10 text-red-400">
-                  <AlertTriangle size={20} />
-                </div>
-                <div>
-                  <h2 className="font-bold text-sm tracking-tight">Delete Session</h2>
-                  <p className="text-[10px] text-zinc-500">This action cannot be undone</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Content */}
-            <div className="p-6">
-              <p className="text-sm text-zinc-300 leading-relaxed">
-                Are you sure you want to delete this session? All messages and context will be permanently removed.
-              </p>
-            </div>
-
-            {/* Footer Actions */}
-            <div className="p-4 border-t border-[var(--border)] bg-[var(--bg-base)] flex justify-end gap-3">
-              <button 
-                onClick={handleCancelDelete}
-                className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-[var(--border)] font-medium text-xs flex items-center gap-2 transition-colors"
-              >
-                <X size={16} />
-                Cancel
-              </button>
-              <button 
-                onClick={handleConfirmDelete}
-                className="px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white font-bold text-xs flex items-center gap-2 transition-colors shadow-lg shadow-red-500/20"
-              >
-                <Check size={16} />
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={deleteConfirm.show}
+        title="Delete Session"
+        subtitle="This action cannot be undone"
+        description="Are you sure you want to delete this session? All messages and context will be permanently removed."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        confirmTone="danger"
+        icon={<AlertTriangle size={20} />}
+        onCancel={handleCancelDelete}
+        onConfirm={handleConfirmDelete}
+      />
     </div>
   );
 }
