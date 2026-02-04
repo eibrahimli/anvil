@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useStore } from "../store";
@@ -9,6 +9,7 @@ import { ChevronDown, Send, Sparkles, History as HistoryIcon, Terminal as TermIc
 import { QuestionModal } from "./QuestionModal";
 import { TodoIndicator } from "./TodoIndicator";
 import { ActivityStream } from "./ActivityStream";
+import { StatusBar, AgentStatus } from "./StatusBar";
 import clsx from "clsx";
 
 import { useAgentEvents } from "../hooks/useAgentEvents";
@@ -16,7 +17,7 @@ import { useAgentEvents } from "../hooks/useAgentEvents";
 export function Chat() {
     const { sessionId, messages, addMessage, workspacePath, setSessionId, appendTokenToLastMessage, updateLastMessageContent } = useStore();
     const { enabledModels, activeModelId, setActiveModel, activeProviderId, apiKeys } = useProviderStore();
-    const { activeMode, setActiveMode, temperature, setTemperature, isEditorOpen: _isEditorOpen, setSettingsOpen } = useUIStore();
+    const { activeMode, setActiveMode, temperature, setTemperature, isEditorOpen: _isEditorOpen, setSettingsOpen, isQuestionOpen } = useUIStore();
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
     const [activeDropdown, setActiveDropdown] = useState<'mode' | 'model' | null>(null);
@@ -47,6 +48,81 @@ export function Chat() {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
     }, [messages, loading]);
+
+    type StatusInfo = {
+        status: AgentStatus;
+        message: string;
+        detail?: string;
+    };
+
+    const statusInfo = useMemo<StatusInfo>(() => {
+        const modeLabel = activeMode.charAt(0).toUpperCase() + activeMode.slice(1);
+        const modeDetail = `Mode: ${modeLabel}`;
+
+        if (isQuestionOpen) {
+            return {
+                status: "waiting",
+                message: "Waiting for your input...",
+                detail: "Answer the prompt to continue"
+            };
+        }
+
+        if (loading) {
+            const recentText = messages
+                .slice(-4)
+                .map((msg) => msg.content || "")
+                .join(" ");
+            const hasTestIntent =
+                activeMode === "build" &&
+                /\b(?:npm|pnpm|yarn)\s+test\b|\bcargo\s+test\b|\bpytest\b|\bvitest\b|\bjest\b|\bgo\s+test\b/i.test(recentText);
+
+            if (hasTestIntent) {
+                return {
+                    status: "testing",
+                    message: "Running tests...",
+                    detail: modeDetail
+                };
+            }
+
+            if (activeMode === "plan") {
+                return {
+                    status: "planning",
+                    message: "Analyzing problem...",
+                    detail: modeDetail
+                };
+            }
+
+            if (activeMode === "research") {
+                return {
+                    status: "researching",
+                    message: "Searching documentation...",
+                    detail: modeDetail
+                };
+            }
+
+            return {
+                status: "implementing",
+                message: "Writing code...",
+                detail: modeDetail
+            };
+        }
+
+        const hasConversation = messages.some((msg) => msg.role === "User" || msg.role === "Assistant");
+
+        if (!hasConversation) {
+            return {
+                status: "done",
+                message: "Ready when you are",
+                detail: modeDetail
+            };
+        }
+
+        return {
+            status: "done",
+            message: "Task completed",
+            detail: modeDetail
+        };
+    }, [activeMode, isQuestionOpen, loading, messages]);
 
     const availableModels = enabledModels; 
 
@@ -174,6 +250,11 @@ export function Chat() {
             </div>
 
             {/* Activity Stream Area */}
+            <StatusBar
+                status={statusInfo.status}
+                message={statusInfo.message}
+                detail={statusInfo.detail}
+            />
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-4 scroll-smooth">
                 {messages.length === 0 && (
                     <div className="h-full flex flex-col items-center justify-center text-center opacity-30 px-12">
@@ -186,7 +267,6 @@ export function Chat() {
                 <ActivityStream 
                     messages={messages} 
                     isLoading={loading}
-                    currentStatus={loading ? 'implementing' : undefined}
                 />
             </div>
 
