@@ -215,7 +215,7 @@ export function MessageCard({ role, content, timestamp }: MessageCardProps) {
 }
 
 interface StatusIndicatorProps {
-  status: 'planning' | 'researching' | 'implementing' | 'testing' | 'waiting' | 'done';
+  status: 'planning' | 'researching' | 'implementing' | 'testing' | 'waiting' | 'done' | 'executing';
   message?: string;
 }
 
@@ -224,6 +224,7 @@ export function StatusIndicator({ status, message }: StatusIndicatorProps) {
     planning: { icon: Brain, color: 'text-blue-400', bg: 'bg-blue-900/20', label: 'Planning' },
     researching: { icon: Search, color: 'text-yellow-400', bg: 'bg-yellow-900/20', label: 'Researching' },
     implementing: { icon: Edit, color: 'text-green-400', bg: 'bg-green-900/20', label: 'Implementing' },
+    executing: { icon: Terminal, color: 'text-cyan-400', bg: 'bg-cyan-900/20', label: 'Executing' },
     testing: { icon: Terminal, color: 'text-purple-400', bg: 'bg-purple-900/20', label: 'Testing' },
     waiting: { icon: CheckCircle, color: 'text-orange-400', bg: 'bg-orange-900/20', label: 'Waiting' },
     done: { icon: CheckCircle, color: 'text-green-400', bg: 'bg-green-900/20', label: 'Done' }

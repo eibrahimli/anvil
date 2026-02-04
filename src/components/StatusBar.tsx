@@ -1,7 +1,7 @@
 import clsx from "clsx";
 import { StatusIndicator } from "./ActivityCards";
 
-export type AgentStatus = "planning" | "researching" | "implementing" | "testing" | "waiting" | "done";
+export type AgentStatus = "planning" | "researching" | "implementing" | "executing" | "testing" | "waiting" | "done";
 
 interface StatusBarProps {
     status: AgentStatus;
@@ -13,6 +13,7 @@ const statusMeta: Record<AgentStatus, { dot: string; label: string }> = {
     planning: { dot: "bg-blue-400", label: "Planning" },
     researching: { dot: "bg-yellow-400", label: "Researching" },
     implementing: { dot: "bg-green-400", label: "Implementing" },
+    executing: { dot: "bg-cyan-400", label: "Executing" },
     testing: { dot: "bg-purple-400", label: "Testing" },
     waiting: { dot: "bg-orange-400", label: "Waiting" },
     done: { dot: "bg-emerald-400", label: "Done" }

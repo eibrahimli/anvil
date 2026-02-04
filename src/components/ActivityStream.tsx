@@ -97,12 +97,18 @@ export function ActivityStream({ messages, isLoading, view = 'stream' }: Activit
             actionType = 'read';
           } else if (toolName.includes('write')) {
             actionType = 'write';
-          } else if (toolName.includes('bash') || toolName.includes('exec')) {
-            actionType = 'execute';
-          } else if (toolName.includes('search')) {
-            actionType = 'search';
-          } else if (toolName.includes('edit')) {
+          } else if (toolName.includes('edit') || toolName.includes('patch')) {
             actionType = 'edit';
+          } else if (toolName.includes('bash') || toolName.includes('git') || toolName.includes('exec')) {
+            actionType = 'execute';
+          } else if (
+            toolName.includes('search') ||
+            toolName.includes('glob') ||
+            toolName.includes('list') ||
+            toolName.includes('symbol') ||
+            toolName.includes('web')
+          ) {
+            actionType = 'search';
           }
           
           if (result.toLowerCase().includes('error') || result.toLowerCase().includes('denied')) {

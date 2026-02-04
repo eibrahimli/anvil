@@ -201,7 +201,7 @@ Redesign tool execution display as action cards.
 ---
 
 ## Task 5.5: Create Status Indicator Bar
-**Status:** ⬜ Not Started
+**Status:** ✅ COMPLETE
 **Assignee:** AI Agent
 **Time Estimate:** 1.5 hours
 
@@ -225,7 +225,7 @@ Add persistent status bar showing agent state.
 ---
 
 ## Task 5.7: Implement Message Grouping
-**Status:** ⬜ Not Started
+**Status:** ✅ COMPLETE
 **Assignee:** AI Agent
 **Time Estimate:** 1.5 hours
 
@@ -235,7 +235,7 @@ Group related messages (thinking + tools + result) into single unit.
 ---
 
 ## Task 5.8: Add Timeline View
-**Status:** ⬜ Not Started
+**Status:** ✅ COMPLETE
 **Assignee:** AI Agent
 **Time Estimate:** 2 hours
 
@@ -245,7 +245,7 @@ Alternative view showing agent activity as timeline.
 ---
 
 ## Task 5.9: Improve Loading States
-**Status:** ⬜ Not Started
+**Status:** ✅ COMPLETE
 **Assignee:** AI Agent
 **Time Estimate:** 1 hour
 
@@ -255,15 +255,15 @@ Better loading/skeleton states.
 ---
 
 ## Task 5.10: Phase 5 Testing
-**Status:** ⬜ Not Started
+**Status:** ✅ COMPLETE
 **Assignee:** AI Agent
 **Time Estimate:** 2 hours
 
 ### Test Plan
-- [ ] UI component tests
-- [ ] User flow tests
-- [ ] Accessibility audit
-- [ ] Performance tests
+- [x] UI component tests
+- [x] User flow tests
+- [x] Accessibility audit
+- [x] Performance tests
 
 ---
 
@@ -321,19 +321,19 @@ Both `step()` and `step_stream()` methods updated with identical prompts.
 - [x] Task 5.2: Activity Stream Redesign
 - [x] Task 5.3: Thinking Blocks
 - [x] Task 5.4: Action Cards
-- [ ] Task 5.5: Status Indicator Bar
+- [x] Task 5.5: Status Indicator Bar
 - [x] Task 5.6: Todo Panel Enhancement
-- [ ] Task 5.7: Message Grouping
-- [ ] Task 5.8: Timeline View
-- [ ] Task 5.9: Loading States
-- [ ] Task 5.10: Phase 5 Testing
+- [x] Task 5.7: Message Grouping
+- [x] Task 5.8: Timeline View
+- [x] Task 5.9: Loading States
+- [x] Task 5.10: Phase 5 Testing
 - [x] Task 5.11: Fix Agent Over-Eager Tool Usage
-- [ ] Task 5.12: Implement Permissions UI Settings
+- [x] Task 5.12: Implement Permissions UI Settings
 
 ---
 
 ## Task 5.12: Implement Permissions UI Settings
-**Status:** ⚠️ IN PROGRESS (TypeScript Linter Issues)
+**Status:** ✅ COMPLETE
 **Assignee:** AI Agent
 **Time Estimate:** 3 hours
 **Priority:** HIGH - Missing critical UX feature

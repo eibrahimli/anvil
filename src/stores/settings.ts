@@ -18,12 +18,14 @@ export interface ToolPermission {
     rules: PermissionRule[];
 }
 
+export type PermissionValue = ToolPermission | PermissionAction;
+
 export interface PermissionConfig {
-    bash: ToolPermission;
-    edit: ToolPermission;
-    read: ToolPermission;
-    write: ToolPermission;
-    skill: ToolPermission;
+    bash: PermissionValue;
+    edit: PermissionValue;
+    read: PermissionValue;
+    write: PermissionValue;
+    skill: PermissionValue;
     // We can add external_directory later if needed
 }
 

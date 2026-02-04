@@ -69,18 +69,100 @@ export function Chat() {
         }
 
         if (loading) {
-            const recentText = messages
-                .slice(-4)
+            const recentUserText = messages
+                .filter((msg) => msg.role === "User")
+                .slice(-3)
                 .map((msg) => msg.content || "")
                 .join(" ");
+            const recentAssistantText = messages
+                .filter((msg) => msg.role === "Assistant")
+                .slice(-3)
+                .map((msg) => msg.content || "")
+                .join(" ");
+            const recentText = `${recentUserText} ${recentAssistantText}`.trim();
+
             const hasTestIntent =
                 activeMode === "build" &&
                 /\b(?:npm|pnpm|yarn)\s+test\b|\bcargo\s+test\b|\bpytest\b|\bvitest\b|\bjest\b|\bgo\s+test\b/i.test(recentText);
+
+            const commandIntentPatterns: RegExp[] = [
+                /\b(run|execute|command|terminal|bash|shell)\b/i,
+                /\b(ls|pwd|cd|cat|head|tail|rg|grep|find|sed|awk|chmod|chown|mkdir|rm|cp|mv|git|npm|pnpm|yarn|cargo|pytest|vitest|jest|go|python|pip|node|deno|docker|kubectl|terraform)\b/i
+            ];
+            const hasCommandIntent = commandIntentPatterns.some((pattern) => pattern.test(recentUserText));
+
+            const toolPattern = /> Executing tool: `([^`]+)`/g;
+            const toolNames: string[] = [];
+            let toolMatch: RegExpExecArray | null;
+            while ((toolMatch = toolPattern.exec(recentAssistantText)) !== null) {
+                toolNames.push(toolMatch[1]);
+            }
+
+            const getToolStatus = (name: string): AgentStatus | null => {
+                const tool = name.toLowerCase();
+                if (tool.includes("question")) return "waiting";
+                if (tool.includes("bash") || tool.includes("git")) return "executing";
+                if (
+                    tool.includes("search") ||
+                    tool.includes("glob") ||
+                    tool.includes("list") ||
+                    tool.includes("symbol") ||
+                    tool.includes("web")
+                ) return "researching";
+                if (tool.includes("todo")) return "planning";
+                if (
+                    tool.includes("read") ||
+                    tool.includes("write") ||
+                    tool.includes("edit") ||
+                    tool.includes("patch") ||
+                    tool.includes("skill") ||
+                    tool.includes("mcp")
+                ) return "implementing";
+                return null;
+            };
+
+            const toolStatuses = toolNames.map(getToolStatus).filter((status): status is AgentStatus => status !== null);
+            const hasExecutingTool = toolStatuses.includes("executing");
+            const hasResearchingTool = toolStatuses.includes("researching");
+            const hasPlanningTool = toolStatuses.includes("planning");
+            const hasImplementingTool = toolStatuses.includes("implementing");
 
             if (hasTestIntent) {
                 return {
                     status: "testing",
                     message: "Running tests...",
+                    detail: modeDetail
+                };
+            }
+
+            if (hasCommandIntent || hasExecutingTool) {
+                return {
+                    status: "executing",
+                    message: "Executing command...",
+                    detail: modeDetail
+                };
+            }
+
+            if (hasResearchingTool) {
+                return {
+                    status: "researching",
+                    message: "Searching documentation...",
+                    detail: modeDetail
+                };
+            }
+
+            if (hasPlanningTool) {
+                return {
+                    status: "planning",
+                    message: "Planning tasks...",
+                    detail: modeDetail
+                };
+            }
+
+            if (hasImplementingTool) {
+                return {
+                    status: "implementing",
+                    message: "Writing code...",
                     detail: modeDetail
                 };
             }

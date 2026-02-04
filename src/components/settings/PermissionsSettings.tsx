@@ -1,29 +1,88 @@
-import { useState, useEffect } from 'react';
-import { useSettingsStore, PermissionAction, PermissionRule, PermissionConfig } from '../../stores/settings';
+import { useState, useEffect, useRef } from 'react';
+import { useSettingsStore, PermissionAction, PermissionRule, PermissionConfig, ToolPermission, PermissionValue } from '../../stores/settings';
 import clsx from 'clsx';
 import { Shield, Terminal, FileEdit, FileText, File, Plus, Trash2, ChevronDown, ChevronRight, Save, RotateCw, Brain } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { useStore } from '../../store';
 
 type ToolKey = keyof PermissionConfig;
 
 export function PermissionsSettings() {
     const { permissions, setPermissions } = useSettingsStore();
+    const workspacePath = useStore((state) => state.workspacePath);
     const [expandedTool, setExpandedTool] = useState<ToolKey | null>(null);
     const [cwd, setCwd] = useState<string>('.');
     const [isLoading, setIsLoading] = useState(false);
+    const [saveMessage, setSaveMessage] = useState<string | null>(null);
+    const [saveTone, setSaveTone] = useState<'success' | 'error' | null>(null);
+    const saveTimeoutRef = useRef<number | null>(null);
     
     useEffect(() => {
-        invoke('get_cwd').then((path: any) => setCwd(path)).catch(console.error);
+        if (workspacePath) {
+            setCwd(workspacePath);
+            return;
+        }
+        invoke<string>('get_cwd').then((path) => setCwd(path)).catch(console.error);
+    }, [workspacePath]);
+
+    useEffect(() => {
+        return () => {
+            if (saveTimeoutRef.current) {
+                window.clearTimeout(saveTimeoutRef.current);
+            }
+        };
     }, []);
 
+    const setTransientSaveMessage = (message: string, tone: 'success' | 'error') => {
+        setSaveMessage(message);
+        setSaveTone(tone);
+        if (saveTimeoutRef.current) {
+            window.clearTimeout(saveTimeoutRef.current);
+        }
+        saveTimeoutRef.current = window.setTimeout(() => {
+            setSaveMessage(null);
+            setSaveTone(null);
+        }, 2500);
+    };
+
+    const defaultPermissions: Record<ToolKey, ToolPermission> = {
+        read: { default: 'ask', rules: [] },
+        write: { default: 'ask', rules: [] },
+        edit: { default: 'ask', rules: [] },
+        bash: { default: 'ask', rules: [] },
+        skill: { default: 'allow', rules: [] }
+    };
+
+    const normalizePermission = (value: PermissionValue | undefined, key: ToolKey): ToolPermission => {
+        if (!value) {
+            return { ...defaultPermissions[key] };
+        }
+        if (typeof value === 'string') {
+            return { default: value, rules: [] };
+        }
+        return {
+            default: value.default ?? defaultPermissions[key].default,
+            rules: Array.isArray(value.rules) ? value.rules : []
+        };
+    };
+
+    const normalizeConfig = (config?: PermissionConfig): PermissionConfig => ({
+        read: normalizePermission(config?.read ?? permissions.read, 'read'),
+        write: normalizePermission(config?.write ?? permissions.write, 'write'),
+        edit: normalizePermission(config?.edit ?? permissions.edit, 'edit'),
+        bash: normalizePermission(config?.bash ?? permissions.bash, 'bash'),
+        skill: normalizePermission(config?.skill ?? permissions.skill, 'skill')
+    });
+
     const handleLoad = async () => {
+        const targetPath = workspacePath || cwd;
         setIsLoading(true);
         try {
-            const config = await invoke<PermissionConfig>('load_permission_config', { workspacePath: cwd });
+            const config = await invoke<PermissionConfig>('load_permission_config', { workspacePath: targetPath });
             if (config) {
                 // Ensure all keys exist (merge with defaults if missing)
-                const merged = { ...permissions, ...config };
-                setPermissions(merged);
+                setPermissions(normalizeConfig({ ...permissions, ...config }));
             }
         } catch (err) {
             console.error("Failed to load permissions:", err);
@@ -33,31 +92,22 @@ export function PermissionsSettings() {
     };
 
     const handleSave = async () => {
+        const targetPath = workspacePath || cwd;
         setIsLoading(true);
         try {
-            await invoke('save_permission_config', { workspacePath: cwd, config: permissions });
+            await invoke('save_permission_config', { workspacePath: targetPath, config: normalizeConfig(permissions) });
+            setTransientSaveMessage('Permissions saved', 'success');
         } catch (err) {
             console.error("Failed to save permissions:", err);
             alert("Failed to save permissions to .anvil/anvil.json");
+            setTransientSaveMessage('Save failed', 'error');
         } finally {
             setIsLoading(false);
         }
     };
 
     const getNormalizedPermission = (key: ToolKey) => {
-        const current = permissions[key];
-        if (typeof current === 'string') {
-            return { default: current as PermissionAction, rules: [] };
-        }
-        if (!current) {
-            return { default: 'ask', rules: [] };
-        }
-        // Use type assertion to ensure rules property access is valid in case of legacy/partial types
-        const typedCurrent = current as any;
-        if (!typedCurrent.rules) {
-            return { ...typedCurrent, rules: [] };
-        }
-        return typedCurrent;
+        return normalizePermission(permissions[key], key);
     };
 
     const updateDefault = (key: ToolKey, action: PermissionAction) => {
@@ -99,7 +149,7 @@ export function PermissionsSettings() {
 
     const deleteRule = (toolKey: ToolKey, index: number) => {
         const current = getNormalizedPermission(toolKey);
-        const rules = current.rules.filter((_: any, i: number) => i !== index);
+        const rules = current.rules.filter((_, i) => i !== index);
         setPermissions({
             ...permissions,
             [toolKey]: {
@@ -109,13 +159,13 @@ export function PermissionsSettings() {
         });
     };
 
-    const tools = [
+    const tools: Array<{ key: ToolKey; label: string; icon: LucideIcon; desc: string }> = [
         { key: 'read', label: 'Read Files', icon: FileText, desc: 'Reading file contents' },
         { key: 'write', label: 'Write Files', icon: File, desc: 'Creating new files' },
         { key: 'edit', label: 'Edit Files', icon: FileEdit, desc: 'Modifying existing files' },
         { key: 'bash', label: 'Terminal', icon: Terminal, desc: 'Executing shell commands' },
         { key: 'skill', label: 'Skills', icon: Brain, desc: 'Using AI skills/tools' },
-    ] as const;
+    ];
 
     return (
         <div className="space-y-6 h-full flex flex-col">
@@ -129,21 +179,7 @@ export function PermissionsSettings() {
 
             <div className="flex-1 overflow-auto space-y-4 pr-2">
                 {tools.map((item) => {
-                    let permission = permissions[item.key as ToolKey];
-                    
-                    // Safety check for legacy state (string instead of object)
-                    if (typeof permission === 'string') {
-                        permission = { default: permission as PermissionAction, rules: [] };
-                    }
-                    // Safety check for missing/undefined state
-                    if (!permission) {
-                        permission = { default: 'ask', rules: [] };
-                    }
-                    // Safety check for missing rules array
-                    if (!permission.rules) {
-                        permission = { ...permission, rules: [] };
-                    }
-
+                    const permission = getNormalizedPermission(item.key);
                     const isExpanded = expandedTool === item.key;
 
                     return (
@@ -151,7 +187,7 @@ export function PermissionsSettings() {
                             <div className="flex items-center justify-between p-4">
                                 <div 
                                     className="flex items-center gap-4 cursor-pointer flex-1"
-                                    onClick={() => setExpandedTool(isExpanded ? null : item.key as ToolKey)}
+                                    onClick={() => setExpandedTool(isExpanded ? null : item.key)}
                                 >
                                     <div className="w-10 h-10 rounded-lg bg-[var(--bg-elevated)] flex items-center justify-center text-zinc-400">
                                         <item.icon size={20} />
@@ -190,7 +226,7 @@ export function PermissionsSettings() {
                                     <div className="flex items-center justify-between text-xs text-zinc-500 uppercase tracking-widest font-bold mb-2">
                                         <span>Exception Rules</span>
                                         <button 
-                                            onClick={() => addRule(item.key as ToolKey)}
+                                            onClick={() => addRule(item.key)}
                                             className="flex items-center gap-1 text-[var(--accent)] hover:text-white transition-colors"
                                         >
                                             <Plus size={12} /> Add Rule
@@ -209,14 +245,14 @@ export function PermissionsSettings() {
                                                         className="flex-1 bg-[var(--bg-base)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-zinc-200 outline-none focus:border-[var(--accent)] font-mono"
                                                         placeholder={item.key === 'bash' ? 'command (e.g., git *)' : '*.ts or src/secrets/*'}
                                                         value={rule.pattern}
-                                                        onChange={(e) => updateRule(item.key as ToolKey, idx, 'pattern', e.target.value)}
+                                                        onChange={(e) => updateRule(item.key, idx, 'pattern', e.target.value)}
                                                     />
                                                     <div className="relative">
                                                         <select
                                                             className="appearance-none bg-[var(--bg-base)] text-[var(--text-primary)] border border-[var(--border)] rounded-lg pl-3 pr-8 py-2 text-sm outline-none focus:border-[var(--accent)]"
                                                             style={{ backgroundColor: 'var(--bg-base)', color: 'var(--text-primary)' }}
                                                             value={rule.action}
-                                                            onChange={(e) => updateRule(item.key as ToolKey, idx, 'action', e.target.value as PermissionAction)}
+                                                            onChange={(e) => updateRule(item.key, idx, 'action', e.target.value as PermissionAction)}
                                                         >
                                                             <option value="allow" style={{ backgroundColor: 'var(--bg-base)', color: 'var(--text-primary)' }}>Allow</option>
                                                             <option value="ask" style={{ backgroundColor: 'var(--bg-base)', color: 'var(--text-primary)' }}>Ask</option>
@@ -250,14 +286,24 @@ export function PermissionsSettings() {
                     <RotateCw size={16} className={clsx(isLoading && "animate-spin")} />
                     Reload
                 </button>
-                <button 
-                    onClick={handleSave}
-                    disabled={isLoading}
-                    className="flex items-center gap-2 px-6 py-2 rounded-xl bg-[var(--accent)] text-white hover:bg-[var(--accent)]/90 transition-all shadow-lg shadow-purple-900/20 text-xs font-bold uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    <Save size={16} />
-                    Save
-                </button>
+                <div className="flex items-center gap-3">
+                    {saveMessage && (
+                        <span className={clsx(
+                            "text-xs font-semibold",
+                            saveTone === 'success' ? "text-green-500" : "text-red-500"
+                        )}>
+                            {saveMessage}
+                        </span>
+                    )}
+                    <button 
+                        onClick={handleSave}
+                        disabled={isLoading}
+                        className="flex items-center gap-2 px-6 py-2 rounded-xl bg-[var(--accent)] text-white hover:bg-[var(--accent)]/90 transition-all shadow-lg shadow-purple-900/20 text-xs font-bold uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        <Save size={16} />
+                        Save
+                    </button>
+                </div>
             </div>
         </div>
     );
