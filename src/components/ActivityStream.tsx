@@ -5,7 +5,7 @@ import clsx from 'clsx';
 
 interface ActivityItem {
   id: string;
-  type: 'message' | 'thinking' | 'action' | 'tool';
+  type: 'message' | 'thinking' | 'action' | 'tool' | 'loading';
   role?: 'user' | 'assistant';
   content: string;
   actionType?: 'read' | 'write' | 'execute' | 'search' | 'edit' | 'generic';
@@ -29,6 +29,18 @@ interface ActivityStreamProps {
   view?: 'stream' | 'timeline';
 }
 
+function LoadingBlock() {
+  return (
+    <div data-testid="activity-loading" className="rounded-lg border border-white/5 bg-[var(--bg-base)]/40 px-4 py-3">
+      <div className="space-y-2 animate-pulse">
+        <div className="h-3 w-40 rounded bg-white/10" />
+        <div className="h-3 w-64 rounded bg-white/5" />
+        <div className="h-3 w-24 rounded bg-white/10" />
+      </div>
+    </div>
+  );
+}
+
 export function ActivityStream({ messages, isLoading, view = 'stream' }: ActivityStreamProps) {
   // Parse messages into activity items
   const groups = useMemo(() => {
@@ -48,7 +60,9 @@ export function ActivityStream({ messages, isLoading, view = 'stream' }: Activit
         });
       } else if (msg.role === 'Assistant') {
         const content = msg.content || '';
-        
+        const isLastMessage = idx === messages.length - 1;
+        const isEmptyAssistant = content.trim().length === 0;
+
         // Check if this is a thinking block by looking for thinking keywords or patterns
         const thinkingPatterns = [
           /^(?:thinking|analyzing|considering|pondering|reflecting)/i,
@@ -118,6 +132,14 @@ export function ActivityStream({ messages, isLoading, view = 'stream' }: Activit
             timestamp: new Date().toLocaleTimeString()
           });
         }
+
+        if (isLoading && isLastMessage && isEmptyAssistant) {
+          items.push({
+            id: `${id}-loading`,
+            type: 'loading',
+            content: ''
+          });
+        }
       }
       
       if (items.length > 0) {
@@ -130,7 +152,7 @@ export function ActivityStream({ messages, isLoading, view = 'stream' }: Activit
     });
     
     return grouped;
-  }, [messages]);
+  }, [messages, isLoading]);
 
   if (groups.length === 0 && !isLoading) {
     return null;
@@ -163,9 +185,9 @@ export function ActivityStream({ messages, isLoading, view = 'stream' }: Activit
                   <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(139,92,246,0.12),_transparent_60%)]" />
                 )}
                 <div className="relative z-10 space-y-3">
-                  {group.items.map((activity) => {
-                    switch (activity.type) {
-                      case 'message':
+              {group.items.map((activity) => {
+                switch (activity.type) {
+                  case 'message':
                         return (
                           <MessageCard
                             key={activity.id}
@@ -184,8 +206,8 @@ export function ActivityStream({ messages, isLoading, view = 'stream' }: Activit
                           />
                         );
                         
-                      case 'action':
-                        return (
+                  case 'action':
+                    return (
                           <ActionCard
                             key={activity.id}
                             type={activity.actionType!}
@@ -194,12 +216,17 @@ export function ActivityStream({ messages, isLoading, view = 'stream' }: Activit
                             content={activity.actionContent}
                             status={activity.actionStatus!}
                           />
-                        );
-                        
-                      default:
-                        return null;
-                    }
-                  })}
+                    );
+
+                  case 'loading':
+                    return (
+                      <LoadingBlock key={activity.id} />
+                    );
+                  
+                  default:
+                    return null;
+                }
+              })}
                 </div>
               </div>
             );
@@ -240,7 +267,7 @@ export function ActivityStream({ messages, isLoading, view = 'stream' }: Activit
       </div>
 
       {/* Loading / Thinking Indicator - only show if no recent thinking content */}
-      {isLoading && !groups.some(group => group.items.some(a => a.type === 'thinking')) && (
+      {isLoading && !groups.some(group => group.items.some(a => a.type === 'thinking' || a.type === 'loading')) && (
         <ThinkingBlock 
           content="Agent is analyzing your request and preparing a response..." 
           isThinking={true} 
