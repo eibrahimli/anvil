@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { X, HelpCircle } from 'lucide-react';
 import clsx from 'clsx';
+import { useUIStore } from '../stores/ui';
 
 interface QuestionOption {
   label: string;
@@ -32,6 +33,7 @@ export function QuestionModal() {
   const [request, setRequest] = useState<QuestionRequest | null>(null);
   const [answers, setAnswers] = useState<QuestionAnswers>({});
   const [customAnswers, setCustomAnswers] = useState<{[key: string]: string}>({});
+  const setQuestionOpen = useUIStore((state) => state.setQuestionOpen);
 
   useEffect(() => {
     const unlisten = listen<QuestionRequest>('agent:question', (event) => {
@@ -45,6 +47,10 @@ export function QuestionModal() {
       unlisten.then(f => f());
     };
   }, []);
+
+  useEffect(() => {
+    setQuestionOpen(isOpen);
+  }, [isOpen, setQuestionOpen]);
 
   const handleOptionSelect = (questionId: string, value: string, multiple: boolean) => {
     setAnswers(prev => {

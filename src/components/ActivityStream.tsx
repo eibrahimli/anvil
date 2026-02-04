@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Message } from '../types';
-import { ActionCard, ThinkingBlock, MessageCard, StatusIndicator } from './ActivityCards';
+import { ActionCard, ThinkingBlock, MessageCard } from './ActivityCards';
 
 interface ActivityItem {
   id: string;
@@ -19,10 +19,9 @@ interface ActivityItem {
 interface ActivityStreamProps {
   messages: Message[];
   isLoading?: boolean;
-  currentStatus?: 'planning' | 'researching' | 'implementing' | 'testing' | 'waiting' | 'done';
 }
 
-export function ActivityStream({ messages, isLoading, currentStatus }: ActivityStreamProps) {
+export function ActivityStream({ messages, isLoading }: ActivityStreamProps) {
   // Parse messages into activity items
   const activities = useMemo(() => {
     const items: ActivityItem[] = [];
@@ -122,16 +121,6 @@ export function ActivityStream({ messages, isLoading, currentStatus }: ActivityS
 
   return (
     <div className="space-y-4">
-      {/* Status Indicator */}
-      {currentStatus && (
-        <div className="sticky top-0 z-10 bg-[var(--bg-base)]/80 backdrop-blur-sm py-2">
-          <StatusIndicator 
-            status={currentStatus} 
-            message={isLoading ? 'Processing...' : undefined}
-          />
-        </div>
-      )}
-
       {/* Activity Items */}
       <div className="space-y-3">
         {activities.map((activity) => {
