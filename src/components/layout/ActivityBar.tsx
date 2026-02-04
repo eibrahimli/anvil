@@ -1,4 +1,4 @@
-import { Files, Settings, TerminalSquare, Plus, Clock, Users, Zap, Plug } from 'lucide-react';
+import { Files, Settings, TerminalSquare, Plus, Users, Zap, Plug } from 'lucide-react';
 import { useUIStore } from '../../stores/ui';
 import { useStore } from '../../store';
 import { useProviderStore } from '../../stores/provider';
@@ -8,7 +8,7 @@ import { invoke } from '@tauri-apps/api/core';
 import clsx from 'clsx';
 
 export function ActivityBar() {
-    const { activeSidebarTab, setActiveSidebarTab, isTerminalOpen, toggleTerminal, setSettingsOpen, isHistoryOpen, setHistoryOpen, isOrchestratorOpen, setOrchestratorOpen } = useUIStore();
+    const { activeSidebarTab, setActiveSidebarTab, isTerminalOpen, toggleTerminal, setSettingsOpen, isOrchestratorOpen, setOrchestratorOpen } = useUIStore();
     const { setWorkspacePath, setSessionId, workspacePath } = useStore();
     const { apiKeys, activeProviderId, activeModelId } = useProviderStore();
     const { workspaces, addWorkspace } = useWorkspaceStore();
@@ -151,14 +151,6 @@ export function ActivityBar() {
                 title="Multi-Agent Orchestration"
             >
                 <Users size={22} strokeWidth={1.5} />
-            </IconWrapper>
-
-            <IconWrapper 
-                active={isHistoryOpen} 
-                onClick={() => setHistoryOpen(!isHistoryOpen)}
-                title="Session History"
-            >
-                <Clock size={22} strokeWidth={1.5} />
             </IconWrapper>
 
             <div className="mt-auto flex flex-col items-center">

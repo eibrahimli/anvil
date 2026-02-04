@@ -26,6 +26,7 @@ interface AppState {
     openFile: (path: string) => void;
     closeFile: (path: string) => void;
     clearMessages: () => void;
+    setMessages: (messages: Message[]) => void;
 }
 
 export const useStore = create<AppState>()(
@@ -46,6 +47,7 @@ export const useStore = create<AppState>()(
             setApiKey: (key) => set({ apiKey: key }),
             setProvider: (provider) => set({ provider }),
             addMessage: (msg) => set((state) => ({ messages: [...state.messages, msg] })),
+            setMessages: (messages) => set({ messages }),
             appendTokenToLastMessage: (token) => set((state) => {
                 const msgs = [...state.messages];
                 if (msgs.length > 0) {

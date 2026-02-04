@@ -87,8 +87,13 @@ impl Storage {
         )
         .map_err(|e| e.to_string())?;
 
-        // Insert all messages
+        // Insert all messages except System messages (they're reconstructed on replay)
         for message in &session.messages {
+            // Skip System messages - they contain workspace state that's recreated on session replay
+            if matches!(message.role, Role::System) {
+                continue;
+            }
+
             let tool_calls_json = message
                 .tool_calls
                 .as_ref()

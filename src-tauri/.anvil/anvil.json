@@ -1,0 +1,30 @@
+{
+  "permission": {
+    "bash": {
+      "default": "allow",
+      "rules": [
+        {
+          "action": "allow",
+          "pattern": "git status"
+        }
+      ]
+    },
+    "edit": {
+      "default": "allow",
+      "rules": []
+    },
+    "external_directory": null,
+    "read": {
+      "default": "allow",
+      "rules": []
+    },
+    "skill": {
+      "default": "allow",
+      "rules": []
+    },
+    "write": {
+      "default": "allow",
+      "rules": []
+    }
+  }
+}

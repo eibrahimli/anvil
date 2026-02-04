@@ -1,11 +1,12 @@
-import { X, Moon, Keyboard, Box, Cpu, Search } from 'lucide-react';
+import { X, Moon, Keyboard, Box, Cpu, Search, Shield, ChevronDown } from 'lucide-react';
 import { useUIStore } from '../../stores/ui';
 import { useSettingsStore } from '../../stores/settings';
 import { useProviderStore } from '../../stores/provider';
+import { PermissionsSettings } from './PermissionsSettings';
 import clsx from 'clsx';
 import { useState } from 'react';
 
-type SettingsTab = 'general' | 'shortcuts' | 'providers' | 'models';
+type SettingsTab = 'general' | 'shortcuts' | 'providers' | 'models' | 'permissions';
 
 export function SettingsModal() {
     const { isSettingsOpen, setSettingsOpen } = useUIStore();
@@ -44,6 +45,12 @@ export function SettingsModal() {
                         icon={<Cpu size={18} />} 
                         label="Models" 
                     />
+                    <TabButton 
+                        active={activeTab === 'permissions'} 
+                        onClick={() => setActiveTab('permissions')} 
+                        icon={<Shield size={18} />} 
+                        label="Permissions" 
+                    />
                 </div>
 
                 {/* Content */}
@@ -63,6 +70,7 @@ export function SettingsModal() {
                         {activeTab === 'shortcuts' && <ShortcutSettings />}
                         {activeTab === 'providers' && <ProviderSettings />}
                         {activeTab === 'models' && <ModelSettings />}
+                        {activeTab === 'permissions' && <PermissionsSettings />}
                     </div>
                 </div>
             </div>
@@ -121,17 +129,21 @@ function GeneralSettings() {
                 <h3 className="text-sm font-medium text-zinc-300 mb-4">Font</h3>
                 <div className="space-y-3">
                     <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Interface & Editor Font</label>
-                    <select 
-                        className="w-full bg-[var(--bg-base)] border border-[var(--border)] rounded-xl px-4 py-2.5 text-sm focus:border-[var(--accent)] outline-none appearance-none text-[var(--text-primary)]"
-                        value={fontFamily}
-                        onChange={(e) => setFontFamily(e.target.value)}
-                    >
-                        <option value="'JetBrains Mono', monospace">JetBrains Mono</option>
-                        <option value="'Fira Code', monospace">Fira Code</option>
-                        <option value="'Source Code Pro', monospace">Source Code Pro</option>
-                        <option value="'Inter', sans-serif">Inter Sans</option>
-                        <option value="monospace">System Mono</option>
-                    </select>
+                    <div className="relative">
+                        <select 
+                            className="w-full bg-[var(--bg-base)] border border-[var(--border)] rounded-xl pl-4 pr-10 py-2.5 text-sm focus:border-[var(--accent)] outline-none appearance-none text-[var(--text-primary)]"
+                            style={{ backgroundColor: 'var(--bg-base)', color: 'var(--text-primary)' }}
+                            value={fontFamily}
+                            onChange={(e) => setFontFamily(e.target.value)}
+                        >
+                            <option value="'JetBrains Mono', monospace" style={{ backgroundColor: 'var(--bg-base)', color: 'var(--text-primary)' }}>JetBrains Mono</option>
+                            <option value="'Fira Code', monospace" style={{ backgroundColor: 'var(--bg-base)', color: 'var(--text-primary)' }}>Fira Code</option>
+                            <option value="'Source Code Pro', monospace" style={{ backgroundColor: 'var(--bg-base)', color: 'var(--text-primary)' }}>Source Code Pro</option>
+                            <option value="'Inter', sans-serif" style={{ backgroundColor: 'var(--bg-base)', color: 'var(--text-primary)' }}>Inter Sans</option>
+                            <option value="monospace" style={{ backgroundColor: 'var(--bg-base)', color: 'var(--text-primary)' }}>System Mono</option>
+                        </select>
+                        <ChevronDown size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+                    </div>
                 </div>
             </div>
         </div>

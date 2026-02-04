@@ -1,6 +1,6 @@
 use crate::domain::ports::Tool;
 use crate::domain::models::ToolResult;
-use crate::config::{SkillLoader, SkillDiscovery, SkillError, PermissionConfig, Action};
+use crate::config::{SkillLoader, SkillDiscovery, PermissionConfig, Action};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;

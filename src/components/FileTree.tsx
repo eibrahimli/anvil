@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../store";
 import { FileNode } from "../types";
+import { SessionList } from "./sidebar/SessionList";
 
 export function FileTree() {
     const { workspacePath, files, activeFile, setFiles, setActiveFileContent, openFile } = useStore();
@@ -63,6 +64,8 @@ export function FileTree() {
 
     return (
         <div className="h-full bg-gray-900 border-r border-gray-800 flex flex-col w-64">
+            {workspacePath && <SessionList />}
+            
             <div className="p-2 text-xs font-bold text-gray-500 uppercase tracking-wider flex justify-between items-center border-b border-gray-800">
                 <span>Explorer</span>
                 <button onClick={refresh} className="hover:text-white p-1 rounded hover:bg-gray-700" title="Refresh">↻</button>

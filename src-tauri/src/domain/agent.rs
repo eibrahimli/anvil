@@ -100,6 +100,18 @@ IMPORTANT RULES:
 1. When asked about available tools, ONLY list them. DO NOT execute them.
 2. Only execute tools when explicitly requested or when necessary to solve a user task.
 3. Never edit or write files unless you are sure the user wants you to modify the codebase.
+4. CRITICAL - DO NOT use tools for:
+   - Greetings (hello, hi, hey)
+   - Small talk or casual conversation
+   - Simple questions that don't require file access
+   - Questions about your capabilities (unless user asks for tool list)
+   - Any message where the user is just chatting
+5. Only use tools when:
+   - User explicitly asks to read/edit/write a file
+   - User asks you to analyze code
+   - User asks you to run a command
+   - You need to gather context to solve a coding problem
+6. If uncertain whether to use tools, respond conversationally without tools.
 
 Previous instructions remain active.",
             mode_instruction,
@@ -310,6 +322,18 @@ IMPORTANT RULES:
 1. When asked about available tools, ONLY list them. DO NOT execute them.
 2. Only execute tools when explicitly requested or when necessary to solve a user task.
 3. Never edit or write files unless you are sure the user wants you to modify the codebase.
+4. CRITICAL - DO NOT use tools for:
+   - Greetings (hello, hi, hey)
+   - Small talk or casual conversation
+   - Simple questions that don't require file access
+   - Questions about your capabilities (unless user asks for tool list)
+   - Any message where the user is just chatting
+5. Only use tools when:
+   - User explicitly asks to read/edit/write a file
+   - User asks you to analyze code
+   - User asks you to run a command
+   - You need to gather context to solve a coding problem
+6. If uncertain whether to use tools, respond conversationally without tools.
 
 Previous instructions remain active.",
             mode_instruction,
@@ -358,6 +382,7 @@ Previous instructions remain active.",
                 return Ok("⚠️ Agent exceeded maximum steps without final response.".to_string());
             }
             steps += 1;
+            println!("[DEBUG] Agent loop step {}", steps);
 
             // Prepare Request
             let tool_schemas: Vec<Value> = self.tools.iter().map(|t| {
@@ -375,7 +400,9 @@ Previous instructions remain active.",
             };
 
             // Call Model via Stream
+            println!("[DEBUG] Calling model with {} messages", self.session.messages.len());
             let res = self.model.stream(req, tx.clone()).await;
+            println!("[DEBUG] Model returned, has {} tool calls", res.tool_calls.as_ref().map(|t| t.len()).unwrap_or(0));
 
             // Append Assistant Message
             self.session.messages.push(Message {
@@ -386,13 +413,15 @@ Previous instructions remain active.",
             });
 
             // Check for Tool Calls
-            if let Some(tool_calls) = res.tool_calls {
+            if let Some(ref tool_calls) = res.tool_calls {
+                println!("[DEBUG] Processing {} tool calls", tool_calls.len());
                 if tool_calls.is_empty() {
+                     println!("[DEBUG] No tool calls, returning response");
                      return Ok(res.content); // Done
                 }
 
                 // Execute Tools
-                for call in &tool_calls {
+                for call in tool_calls {
                      // Notify frontend about tool execution
                      let _ = tx.send(format!("\n\n> Executing tool: `{}`...\n", call.name)).await;
 
@@ -462,16 +491,20 @@ Previous instructions remain active.",
                      };
 
 
-                     // Notify frontend about tool result
-                     let _ = tx.send(format!("\n\n> Result: \n```\n{}\n```\n", result_content)).await;
+                      // Notify frontend about tool result
+                      let result_msg = format!("\n\n> Result: \n```\n{}\n```\n", result_content);
+                      println!("[DEBUG] Sending tool result: {}", &result_msg[..result_msg.len().min(100)]);
+                      let _ = tx.send(result_msg).await;
 
-                     // Append Tool Output
-                     self.session.messages.push(Message {
-                         role: Role::Tool,
-                         content: Some(result_content),
-                         tool_calls: None,
-                         tool_call_id: Some(call.id.clone()),
-                     });
+                      // Append Tool Output
+                      self.session.messages.push(Message {
+                          role: Role::Tool,
+                          content: Some(result_content),
+                          tool_calls: None,
+                          tool_call_id: Some(call.id.clone()),
+                      });
+                      
+                      println!("[DEBUG] Tool '{}' executed, continuing loop", call.name);
                 }
                 // Loop continues to feed tool outputs back to model
             } else {

@@ -8,6 +8,7 @@ use crate::domain::agent::Agent;
 use crate::domain::orchestrator::{Orchestrator, Task, TaskStatus};
 use crate::domain::models::{AgentSession, AgentPermissions, ModelId, AgentMode, AgentRole};
 use crate::domain::ports::ModelAdapter;
+use crate::config::manager::{Config, PermissionConfig};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{State, Emitter};
@@ -865,18 +866,18 @@ pub async fn list_mcp_tools(
 }
 
 /// Load MCP configuration from anvil.json
-#[tauri::command]
-pub async fn load_mcp_config(
-    state: State<'_, AppState>,
-    workspace_path: String,
-) -> Result<serde_json::Value, String> {
-    let path = PathBuf::from(&workspace_path);
-    
-    let mut config_manager = crate::config::ConfigManager::new();
-    let _ = config_manager.load(Some(&path));
-    let config = config_manager.config();
-    
-    let mcp_config = config.mcp.as_ref();
+    #[tauri::command]
+    pub async fn load_mcp_config(
+        _state: State<'_, AppState>,
+        workspace_path: String,
+    ) -> Result<serde_json::Value, String> {
+        let path = PathBuf::from(&workspace_path);
+        
+        let mut config_manager = crate::config::ConfigManager::new();
+        let _ = config_manager.load(Some(&path));
+        let config = config_manager.config();
+        
+        let mcp_config = config.mcp.as_ref();
     
     let enabled_servers: Vec<serde_json::Value> = if let Some(mcp) = mcp_config {
         let servers = mcp.get_servers();
@@ -912,16 +913,16 @@ pub async fn load_mcp_config(
 }
 
 /// Get all MCP tools from configured servers
-#[tauri::command]
-pub async fn get_all_mcp_tools(
-    state: State<'_, AppState>,
-    workspace_path: String,
-) -> Result<serde_json::Value, String> {
-    let path = PathBuf::from(&workspace_path);
-    
-    let mut config_manager = crate::config::ConfigManager::new();
-    let _ = config_manager.load(Some(&path));
-    let config = config_manager.config();
+    #[tauri::command]
+    pub async fn get_all_mcp_tools(
+        _state: State<'_, AppState>,
+        workspace_path: String,
+    ) -> Result<serde_json::Value, String> {
+        let path = PathBuf::from(&workspace_path);
+        
+        let mut config_manager = crate::config::ConfigManager::new();
+        let _ = config_manager.load(Some(&path));
+        let config = config_manager.config();
     
     let mcp_config = config.mcp.as_ref();
     
@@ -1114,4 +1115,61 @@ pub async fn save_mcp_config(
     
     Ok(())
 }
+
+/// Save permission configuration to anvil.json
+#[tauri::command]
+pub async fn save_permission_config(
+    workspace_path: String,
+    config: PermissionConfig,
+) -> Result<(), String> {
+    let path = PathBuf::from(&workspace_path).join(".anvil").join("anvil.json");
+    
+    // Ensure directory exists
+    if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+    }
+    
+    // Load existing config or create new
+    let mut root_config: serde_json::Value = if path.exists() {
+        let content =
+                std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&content).map_err(|e| e.to_string())?
+    } else {
+        serde_json::json!({})
+    };
+    
+    // Update permission field
+    if let Some(obj) = root_config.as_object_mut() {
+        obj.insert("permission".to_string(), serde_json::to_value(config).map_err(|e| e.to_string())?);
+    } else {
+        return Err("Invalid anvil.json format: root is not an object".to_string());
+    }
+    
+    // Write back
+    let json = serde_json::to_string_pretty(&root_config).map_err(|e| e.to_string())?;
+    std::fs::write(path, json).map_err(|e| e.to_string())?;
+    
+    Ok(())
+}
+
+/// Load permission configuration from anvil.json
+#[tauri::command]
+pub async fn load_permission_config(
+    workspace_path: String,
+) -> Result<Option<PermissionConfig>, String> {
+    let path = PathBuf::from(&workspace_path).join(".anvil").join("anvil.json");
+    
+    if !path.exists() {
+        return Ok(None);
+    }
+    
+    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let config = serde_json::from_str::<Config>(&content)
+        .map_err(|e| e.to_string())?;
+    
+    Ok(Some(config.permission))
+}
+
 

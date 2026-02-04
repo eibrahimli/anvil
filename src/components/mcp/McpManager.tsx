@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
-import { Plus, RefreshCw, Server, Play, Power, Trash2, X } from "lucide-react";
+import { Plus, RefreshCw, Server, Play, Power, Trash2, X, ChevronDown } from "lucide-react";
 import clsx from "clsx";
 
 interface McpServer {
@@ -274,14 +274,18 @@ function AddServerModal({ onClose, onSave }: { onClose: () => void, onSave: (ser
           
           <div>
             <label className="block text-sm font-medium text-zinc-300 mb-1">Transport</label>
-            <select 
-              value={type}
-              onChange={e => setType(e.target.value as any)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded p-2 text-white"
-            >
-              <option value="stdio">Stdio (Local)</option>
-              <option value="http">HTTP (Remote)</option>
-            </select>
+            <div className="relative">
+              <select 
+                value={type}
+                onChange={e => setType(e.target.value as any)}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded pl-2 pr-8 py-2 text-white appearance-none outline-none focus:border-purple-500"
+                style={{ backgroundColor: '#27272a', color: 'white' }}
+              >
+                <option value="stdio" style={{ backgroundColor: '#27272a', color: 'white' }}>Stdio (Local)</option>
+                <option value="http" style={{ backgroundColor: '#27272a', color: 'white' }}>HTTP (Remote)</option>
+              </select>
+              <ChevronDown size={16} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
+            </div>
           </div>
           
           {type === 'stdio' ? (

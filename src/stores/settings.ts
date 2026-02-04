@@ -6,6 +6,27 @@ interface DiffContent {
     newContent: string | null;
 }
 
+export type PermissionAction = 'allow' | 'ask' | 'deny';
+
+export interface PermissionRule {
+    pattern: string;
+    action: PermissionAction;
+}
+
+export interface ToolPermission {
+    default: PermissionAction;
+    rules: PermissionRule[];
+}
+
+export interface PermissionConfig {
+    bash: ToolPermission;
+    edit: ToolPermission;
+    read: ToolPermission;
+    write: ToolPermission;
+    skill: ToolPermission;
+    // We can add external_directory later if needed
+}
+
 interface SettingsState {
     theme: 'aura' | 'dark' | 'light';
     fontFamily: string;
@@ -13,13 +34,26 @@ interface SettingsState {
     language: string;
     isDiffMode: boolean;
     diffContent: DiffContent;
+    permissions: PermissionConfig;
 
     setTheme: (theme: 'aura' | 'dark' | 'light') => void;
     setFontFamily: (font: string) => void;
     setFontSize: (size: number) => void;
     setLanguage: (lang: string) => void;
     setDiffMode: (active: boolean, content?: DiffContent) => void;
+    setPermissions: (permissions: PermissionConfig) => void;
 }
+
+const defaultToolPermission: ToolPermission = {
+    default: 'ask',
+    rules: []
+};
+
+// Skills are allowed by default as per Rust config
+const defaultSkillPermission: ToolPermission = {
+    default: 'allow',
+    rules: []
+};
 
 export const useSettingsStore = create<SettingsState>()(
     persist(
@@ -30,6 +64,13 @@ export const useSettingsStore = create<SettingsState>()(
             language: 'english',
             isDiffMode: false,
             diffContent: { oldContent: null, newContent: null },
+            permissions: {
+              read: { ...defaultToolPermission },
+              write: { ...defaultToolPermission },
+              edit: { ...defaultToolPermission },
+              bash: { ...defaultToolPermission },
+              skill: { ...defaultSkillPermission },
+            },
             setTheme: (theme) => set({ theme }),
             setFontFamily: (fontFamily) => set({ fontFamily }),
             setFontSize: (fontSize) => set({ fontSize }),
@@ -38,9 +79,34 @@ export const useSettingsStore = create<SettingsState>()(
                 isDiffMode: active, 
                 diffContent: content || { oldContent: null, newContent: null } 
             }),
+            setPermissions: (permissions: PermissionConfig) => set({ permissions }),
         }),
         {
             name: 'anvil-settings',
+            migrate: (persistedState: any, version) => {
+                if (version === 0) {
+                    // Migration from version 0 to 1
+                    // Convert string permissions to object permissions
+                    const newState = { ...persistedState } as SettingsState;
+                    const tools = ['read', 'write', 'edit', 'bash', 'skill'];
+                    
+                    if (newState.permissions) {
+                        tools.forEach(tool => {
+                            const val = (newState.permissions as any)[tool];
+                            if (typeof val === 'string') {
+                                // Convert legacy string "ask" to { default: "ask", rules: [] }
+                                (newState.permissions as any)[tool] = {
+                                    default: val as PermissionAction,
+                                    rules: []
+                                };
+                            }
+                        });
+                    }
+                    return newState;
+                }
+                return persistedState;
+            },
+            version: 1,
         }
     )
 );

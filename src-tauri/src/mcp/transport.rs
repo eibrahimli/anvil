@@ -264,7 +264,7 @@ impl Transport for StdioTransport {
 
 /// Streamable HTTP transport for remote MCP servers
 pub struct HttpTransport {
-    sse_url: String,
+    _sse_url: String,
     post_url: Arc<RwLock<Option<String>>>,
     headers: HashMap<String, String>,
     client: reqwest::Client,
@@ -299,7 +299,7 @@ impl HttpTransport {
         });
 
         Ok(Self {
-            sse_url: url,
+            _sse_url: url,
             post_url,
             headers,
             client,

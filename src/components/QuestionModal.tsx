@@ -76,10 +76,12 @@ export function QuestionModal() {
     }
 
     try {
+      console.log('Submitting answer for question:', request.id, answers);
       await invoke('resolve_question', {
         questionId: request.id,
         answers: answers
       });
+      console.log('Answer submitted successfully');
       setIsOpen(false);
       setRequest(null);
     } catch (error) {

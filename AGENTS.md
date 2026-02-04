@@ -109,6 +109,27 @@ Before creating PR, verify:
 - **Utilities:** Use `clsx` and `tailwind-merge` for conditional classes.
 - **Theming:** Use CSS variables defined in `index.css` or `App.css` (e.g., `var(--bg-base)`, `var(--accent)`). Do not hardcode hex colors if a theme variable exists.
 
+### UI Components & Styling Rules
+**Strict Select/Dropdown Styling Rule:**
+To ensure cross-platform consistency (especially on Linux/GTK) and respect for dark themes, ALL `<select>` elements must follow this pattern:
+1.  **Remove Native Styling:** Add the `appearance-none` class to the select element.
+2.  **Custom Icon:** Wrap the select in a `relative` container and place an absolute positioned icon (e.g., `ChevronDown`) on the right.
+3.  **Inline Color Enforcement:** Explicitly set inline styles for `backgroundColor` and `color` using CSS variables on BOTH the `<select>` and `<option>` elements. This is a critical fallback for some browser/OS combinations that ignore CSS classes on dropdown options.
+
+**Example Pattern:**
+```tsx
+<div className="relative">
+    <select 
+        className="appearance-none bg-[var(--bg-base)] text-[var(--text-primary)] border border-[var(--border)] rounded-lg pl-3 pr-8 py-2 text-sm outline-none focus:border-[var(--accent)]"
+        style={{ backgroundColor: 'var(--bg-base)', color: 'var(--text-primary)' }}
+        // ... props
+    >
+        <option value="1" style={{ backgroundColor: 'var(--bg-base)', color: 'var(--text-primary)' }}>Option 1</option>
+    </select>
+    <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+</div>
+```
+
 ### Tauri Integration
 - **Commands:** Use `invoke<T>("command_name", { args })` from `@tauri-apps/api/core`.
 - **Events:** Use `listen<T>("event_name", callback)` from `@tauri-apps/api/event`.

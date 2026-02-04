@@ -5,10 +5,10 @@ import { useStore } from "../store";
 import { useProviderStore } from "../stores/provider";
 import { useUIStore, AgentMode } from "../stores/ui";
 import { Message } from "../types";
-import { ChevronDown, Send, Sparkles, User, Terminal as TermIcon, History as HistoryIcon, Zap, Clock, Image as ImageIcon } from "lucide-react";
-import { ToolResultRenderer } from "./tools/ToolResultRenderer";
+import { ChevronDown, Send, Sparkles, History as HistoryIcon, Terminal as TermIcon, Zap, Image as ImageIcon } from "lucide-react";
 import { QuestionModal } from "./QuestionModal";
 import { TodoIndicator } from "./TodoIndicator";
+import { ActivityStream } from "./ActivityStream";
 import clsx from "clsx";
 
 import { useAgentEvents } from "../hooks/useAgentEvents";
@@ -154,55 +154,6 @@ export function Chat() {
         }
     }
 
-    // Helper function to parse tool execution patterns in message content
-    interface ToolPart {
-        type: 'tool';
-        toolName: string;
-        result: string;
-    }
-    interface TextPart {
-        type: 'text';
-        content: string;
-    }
-    type MessagePart = ToolPart | TextPart;
-
-    const parseToolResults = (content: string): MessagePart[] => {
-        const parts: MessagePart[] = [];
-        const toolPattern = /> Executing tool: `([^`]+)`[\s\S]*?(?:> Result:\s*)?```\n?([\s\S]*?)```/g;
-
-        let lastIndex = 0;
-        let match;
-
-        while ((match = toolPattern.exec(content)) !== null) {
-            // Add text before the tool execution
-            if (match.index > lastIndex) {
-                parts.push({
-                    type: 'text',
-                    content: content.slice(lastIndex, match.index)
-                });
-            }
-
-            // Add the tool execution
-            parts.push({
-                type: 'tool',
-                toolName: match[1],
-                result: match[2]
-            });
-
-            lastIndex = match.index + match[0].length;
-        }
-
-        // Add remaining text
-        if (lastIndex < content.length) {
-            parts.push({
-                type: 'text',
-                content: content.slice(lastIndex)
-            });
-        }
-
-        return parts.length > 0 ? parts : [{ type: 'text', content }];
-    };
-
     return (
         <div className="flex flex-col h-full bg-[var(--bg-base)] text-[var(--text-primary)] font-sans relative">
             {/* Header - Simple and clean */}
@@ -222,8 +173,8 @@ export function Chat() {
                 </div>
             </div>
 
-            {/* Messages Area */}
-            <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-8 scroll-smooth">
+            {/* Activity Stream Area */}
+            <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-4 scroll-smooth">
                 {messages.length === 0 && (
                     <div className="h-full flex flex-col items-center justify-center text-center opacity-30 px-12">
                         <Sparkles size={48} className="mb-4 text-[var(--accent)]" />
@@ -232,65 +183,11 @@ export function Chat() {
                     </div>
                 )}
 
-                {messages.map((m, i) => {
-                    const parsedParts = parseToolResults(m.content || '');
-
-                    return (
-                    <div key={i} className={`flex gap-4 ${m.role === "User" ? "flex-row-reverse" : "flex-row"}`}>
-                        <div className={`w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center ${
-                            m.role === "User" ? "bg-[var(--bg-elevated)] text-zinc-400" :
-                            m.role === "System" ? "bg-red-900/20 text-red-500" : "bg-[var(--accent)]/20 text-[var(--accent)]"
-                        }`}>
-                            {m.role === "User" ? <User size={16} /> : <Sparkles size={16} />}
-                        </div>
-
-                        <div className={`flex flex-col max-w-[85%] ${m.role === "User" ? "items-end" : "items-start"}`}>
-                            <div className={`rounded-xl p-4 text-sm leading-relaxed ${
-                                m.role === "User" ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] rounded-tr-none" :
-                                m.role === "System" ? "bg-red-900/10 border border-red-900/30 text-red-400" : "bg-transparent text-[var(--text-secondary)] pl-0 w-full"
-                            }`}>
-                                {parsedParts.map((part, idx) => (
-                                    <div key={idx}>
-                                        {part.type === 'text' && part.content && (
-                                            <div className="whitespace-pre-wrap font-sans">
-                                                {part.content}
-                                            </div>
-                                        )}
-                                        {part.type === 'tool' && part.toolName && part.result && (
-                                            <div className="mt-3 mb-3">
-                                                <ToolResultRenderer toolName={part.toolName} result={part.result} />
-                                            </div>
-                                        )}
-                                    </div>
-                                ))}
-
-                                {m.tool_calls && (
-                                    <div className="mt-4 space-y-2">
-                                        {m.tool_calls.map((t, idx) => (
-                                            <div key={idx} className="flex items-center gap-2 text-[11px] bg-[var(--bg-base)] border border-[var(--border)] px-3 py-1.5 rounded-lg font-mono text-zinc-500">
-                                                <TermIcon size={12} className="text-[var(--accent)]" />
-                                                <span className="text-zinc-400 font-bold uppercase tracking-tighter">EXECUTE:</span>
-                                                <span className="text-zinc-300">{t.name}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                    );
-                })}
-                {loading && (
-                    <div className="flex gap-4 animate-pulse">
-                         <div className="w-8 h-8 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center text-[var(--accent)]">
-                            <Sparkles size={16} />
-                        </div>
-                        <div className="flex flex-col gap-2 mt-1">
-                            <div className="h-4 w-48 bg-[var(--bg-elevated)] rounded-full"></div>
-                            <div className="h-4 w-32 bg-[var(--bg-elevated)] rounded-full opacity-50"></div>
-                        </div>
-                    </div>
-                )}
+                <ActivityStream 
+                    messages={messages} 
+                    isLoading={loading}
+                    currentStatus={loading ? 'implementing' : undefined}
+                />
             </div>
 
             {/* Input Area */}
@@ -399,9 +296,6 @@ export function Chat() {
 
                         {/* Right Side Buttons */}
                         <div className="flex items-center gap-1">
-                            <button className="p-2 rounded-lg hover:bg-zinc-800 text-zinc-500 transition-colors" title="Recent History">
-                                <Clock size={18} />
-                            </button>
                             <button className="p-2 rounded-lg hover:bg-zinc-800 text-zinc-500 transition-colors" title="Add Image">
                                 <ImageIcon size={18} />
                             </button>
@@ -420,11 +314,6 @@ export function Chat() {
                         <span>Control + P for commands</span>
                     </div>
                 </div>
-            </div>
-            <div className="mt-3 flex items-center justify-center gap-4 text-[10px] text-zinc-600 font-bold uppercase tracking-widest">
-                <span>Shift + Enter for new line</span>
-                <span className="w-1 h-1 bg-zinc-800 rounded-full" />
-                <span>Control + P for commands</span>
             </div>
             
             {/* Question Modal for agent interactions */}

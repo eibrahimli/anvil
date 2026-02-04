@@ -2,6 +2,7 @@ import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../store";
 import { useProviderStore } from "../stores/provider";
+import { ChevronDown } from "lucide-react";
 
 export function Setup() {
     const { setSessionId, setWorkspacePath, setApiKey, setProvider } = useStore();
@@ -83,32 +84,40 @@ export function Setup() {
                 <div className="flex space-x-4">
                     <div className="flex-1">
                         <label className="block text-sm font-medium mb-2 text-gray-300">Provider</label>
-                        <select 
-                            className="w-full bg-gray-950 rounded p-2 border border-gray-700 text-white focus:border-blue-500 focus:outline-none appearance-none"
-                            value={provider}
-                            onChange={e => setLocalProvider(e.target.value)}
-                        >
-                            <option value="openai">OpenAI</option>
-                            <option value="gemini">Google Gemini</option>
-                            <option value="anthropic">Anthropic Claude</option>
-                        </select>
+                        <div className="relative">
+                            <select 
+                                className="w-full bg-gray-950 rounded pl-2 pr-8 py-2 border border-gray-700 text-white focus:border-blue-500 focus:outline-none appearance-none"
+                                style={{ backgroundColor: '#030712', color: 'white' }}
+                                value={provider}
+                                onChange={e => setLocalProvider(e.target.value)}
+                            >
+                                <option value="openai" style={{ backgroundColor: '#030712', color: 'white' }}>OpenAI</option>
+                                <option value="gemini" style={{ backgroundColor: '#030712', color: 'white' }}>Google Gemini</option>
+                                <option value="anthropic" style={{ backgroundColor: '#030712', color: 'white' }}>Anthropic Claude</option>
+                            </select>
+                            <ChevronDown size={16} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                        </div>
                     </div>
                     <div className="flex-1">
                         <label className="block text-sm font-medium mb-2 text-gray-300">Model</label>
-                        <select 
-                            className="w-full bg-gray-950 rounded p-2 border border-gray-700 text-white focus:border-blue-500 focus:outline-none appearance-none"
-                            value={modelId}
-                            onChange={e => setModelId(e.target.value)}
-                            disabled={currentModels.length === 0}
-                        >
-                            {currentModels.length === 0 ? (
-                                <option>No models enabled in Settings</option>
-                            ) : (
-                                currentModels.map(m => (
-                                    <option key={m} value={m}>{m}</option>
-                                ))
-                            )}
-                        </select>
+                        <div className="relative">
+                            <select 
+                                className="w-full bg-gray-950 rounded pl-2 pr-8 py-2 border border-gray-700 text-white focus:border-blue-500 focus:outline-none appearance-none"
+                                style={{ backgroundColor: '#030712', color: 'white' }}
+                                value={modelId}
+                                onChange={e => setModelId(e.target.value)}
+                                disabled={currentModels.length === 0}
+                            >
+                                {currentModels.length === 0 ? (
+                                    <option style={{ backgroundColor: '#030712', color: 'white' }}>No models enabled in Settings</option>
+                                ) : (
+                                    currentModels.map(m => (
+                                        <option key={m} value={m} style={{ backgroundColor: '#030712', color: 'white' }}>{m}</option>
+                                    ))
+                                )}
+                            </select>
+                            <ChevronDown size={16} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                        </div>
                     </div>
                 </div>
                 <div>

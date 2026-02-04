@@ -2,10 +2,7 @@ import { ActivityBar } from './ActivityBar';
 import { useSettingsStore } from '../../stores/settings';
 import { useUIStore } from '../../stores/ui';
 import { SettingsModal } from '../settings/SettingsModal';
-import { HistoryModal } from '../history/HistoryModal';
 import { OrchestratorPanel } from '../orchestrator/OrchestratorPanel';
-import { useStore } from '../../store';
-import { invoke } from '@tauri-apps/api/core';
 import clsx from 'clsx';
 
 interface AppShellProps {
@@ -14,21 +11,7 @@ interface AppShellProps {
 
 export function AppShell({ children }: AppShellProps) {
     const { theme, fontFamily, fontSize } = useSettingsStore();
-    const { isSettingsOpen, isHistoryOpen, setHistoryOpen, isOrchestratorOpen, setOrchestratorOpen } = useUIStore();
-    const { setSessionId } = useStore();
-
-    const handleReplay = async (sessionToReplayId: string) => {
-        try {
-            const newSessionId = await invoke<string>('replay_session', { 
-                sessionId: sessionToReplayId 
-            });
-            setSessionId(newSessionId);
-            setHistoryOpen(false);
-        } catch (error) {
-            console.error('Failed to replay session:', error);
-            alert('Failed to replay session. Please try again.');
-        }
-    };
+    const { isSettingsOpen, isOrchestratorOpen, setOrchestratorOpen } = useUIStore();
 
     return (
         <div
@@ -49,12 +32,7 @@ export function AppShell({ children }: AppShellProps) {
             </div>
 
             {isSettingsOpen && <SettingsModal />}
-            {isHistoryOpen && (
-                <HistoryModal
-                    onClose={() => setHistoryOpen(false)}
-                    onReplay={handleReplay}
-                />
-            )}
+            
             {isOrchestratorOpen && (
                 <OrchestratorPanel
                     onClose={() => setOrchestratorOpen(false)}

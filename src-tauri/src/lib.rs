@@ -64,8 +64,11 @@ pub fn run() {
         commands::test_mcp_connection,
         commands::list_mcp_tools,
         commands::load_mcp_config,
+        commands::list_mcp_tools,
+        commands::load_mcp_config,
         commands::get_all_mcp_tools,
         commands::call_mcp_tool,
+        commands::save_permission_config,
         commands::save_mcp_config
      ])
         .run(tauri::generate_context!())

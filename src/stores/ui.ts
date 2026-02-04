@@ -11,7 +11,6 @@ interface UIState {
     isTerminalOpen: boolean;
     isSettingsOpen: boolean;
     isEditorOpen: boolean;
-    isHistoryOpen: boolean;
     isOrchestratorOpen: boolean;
 
     setActiveSidebarTab: (tab: SidebarTab) => void;
@@ -20,7 +19,6 @@ interface UIState {
     toggleTerminal: () => void;
     setSettingsOpen: (open: boolean) => void;
     setEditorOpen: (open: boolean) => void;
-    setHistoryOpen: (open: boolean) => void;
     setOrchestratorOpen: (open: boolean) => void;
 }
 
@@ -31,7 +29,6 @@ export const useUIStore = create<UIState>((set) => ({
     isTerminalOpen: false,
     isSettingsOpen: false,
     isEditorOpen: false,
-    isHistoryOpen: false,
     isOrchestratorOpen: false,
 
     setActiveSidebarTab: (tab) => set({ activeSidebarTab: tab }),
@@ -40,6 +37,5 @@ export const useUIStore = create<UIState>((set) => ({
     toggleTerminal: () => set((state) => ({ isTerminalOpen: !state.isTerminalOpen })),
     setSettingsOpen: (open) => set({ isSettingsOpen: open }),
     setEditorOpen: (open) => set({ isEditorOpen: open }),
-    setHistoryOpen: (open) => set({ isHistoryOpen: open }),
     setOrchestratorOpen: (open) => set({ isOrchestratorOpen: open }),
 }));
