@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Message } from '../types';
 import { ActionCard, ThinkingBlock, MessageCard } from './ActivityCards';
+import clsx from 'clsx';
 
 interface ActivityItem {
   id: string;
@@ -16,6 +17,12 @@ interface ActivityItem {
   timestamp?: string;
 }
 
+interface ActivityGroup {
+  id: string;
+  role: 'user' | 'assistant';
+  items: ActivityItem[];
+}
+
 interface ActivityStreamProps {
   messages: Message[];
   isLoading?: boolean;
@@ -23,11 +30,12 @@ interface ActivityStreamProps {
 
 export function ActivityStream({ messages, isLoading }: ActivityStreamProps) {
   // Parse messages into activity items
-  const activities = useMemo(() => {
-    const items: ActivityItem[] = [];
+  const groups = useMemo(() => {
+    const grouped: ActivityGroup[] = [];
     
     messages.forEach((msg, idx) => {
       const id = `activity-${idx}`;
+      const items: ActivityItem[] = [];
       
       if (msg.role === 'User') {
         items.push({
@@ -110,12 +118,20 @@ export function ActivityStream({ messages, isLoading }: ActivityStreamProps) {
           });
         }
       }
+      
+      if (items.length > 0) {
+        grouped.push({
+          id: `group-${idx}`,
+          role: msg.role === 'User' ? 'user' : 'assistant',
+          items
+        });
+      }
     });
     
-    return items;
+    return grouped;
   }, [messages]);
 
-  if (activities.length === 0 && !isLoading) {
+  if (groups.length === 0 && !isLoading) {
     return null;
   }
 
@@ -123,47 +139,67 @@ export function ActivityStream({ messages, isLoading }: ActivityStreamProps) {
     <div className="space-y-4">
       {/* Activity Items */}
       <div className="space-y-3">
-        {activities.map((activity) => {
-          switch (activity.type) {
-            case 'message':
-              return (
-                <MessageCard
-                  key={activity.id}
-                  role={activity.role!}
-                  content={activity.content}
-                  timestamp={activity.timestamp}
-                />
-              );
-              
-            case 'thinking':
-              return (
-                <ThinkingBlock
-                  key={activity.id}
-                  content={activity.content}
-                  isThinking={activity.isThinking}
-                />
-              );
-              
-            case 'action':
-              return (
-                <ActionCard
-                  key={activity.id}
-                  type={activity.actionType!}
-                  title={activity.actionTitle!}
-                  description={activity.actionDescription}
-                  content={activity.actionContent}
-                  status={activity.actionStatus!}
-                />
-              );
-              
-            default:
-              return null;
-          }
-        })}
+        {groups.map((group) => (
+          <div
+            key={group.id}
+            data-testid="activity-group"
+            className={clsx(
+              "flex",
+              group.role === 'user' ? "justify-end" : "justify-start"
+            )}
+          >
+            <div
+              className={clsx(
+                "rounded-xl border px-4 py-3 space-y-3",
+                group.role === 'user'
+                  ? "max-w-[85%] bg-zinc-900/50 border-zinc-800/60"
+                  : "w-full bg-[var(--bg-surface)]/40 border-[var(--border)]"
+              )}
+            >
+              {group.items.map((activity) => {
+                switch (activity.type) {
+                  case 'message':
+                    return (
+                      <MessageCard
+                        key={activity.id}
+                        role={activity.role!}
+                        content={activity.content}
+                        timestamp={activity.timestamp}
+                      />
+                    );
+                    
+                  case 'thinking':
+                    return (
+                      <ThinkingBlock
+                        key={activity.id}
+                        content={activity.content}
+                        isThinking={activity.isThinking}
+                      />
+                    );
+                    
+                  case 'action':
+                    return (
+                      <ActionCard
+                        key={activity.id}
+                        type={activity.actionType!}
+                        title={activity.actionTitle!}
+                        description={activity.actionDescription}
+                        content={activity.actionContent}
+                        status={activity.actionStatus!}
+                      />
+                    );
+                    
+                  default:
+                    return null;
+                }
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Loading / Thinking Indicator - only show if no recent thinking content */}
-      {isLoading && !activities.some(a => a.type === 'thinking') && (
+      {isLoading && !groups.some(group => group.items.some(a => a.type === 'thinking')) && (
         <ThinkingBlock 
           content="Agent is analyzing your request and preparing a response..." 
           isThinking={true} 
