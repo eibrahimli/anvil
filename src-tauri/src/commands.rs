@@ -57,9 +57,11 @@ pub async fn open_file_in_editor(
 pub async fn spawn_terminal(
     state: State<'_, AppState>,
     app: tauri::AppHandle,
+    workspace_path: Option<String>,
 ) -> Result<(), String> {
     let mut terminal = state.terminal.lock().map_err(|_| "Failed to lock terminal")?;
-    terminal.spawn(app)
+    let workspace_root = workspace_path.map(PathBuf::from);
+    terminal.spawn(app, workspace_root)
 }
 
 #[tauri::command]
@@ -1174,4 +1176,3 @@ pub async fn load_permission_config(
     
     Ok(Some(config.permission))
 }
-

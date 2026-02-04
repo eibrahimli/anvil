@@ -11,17 +11,77 @@ import { useStore } from "./store";
 import { useConfirmationStore } from "./stores/confirmation";
 import { useSettingsStore } from "./stores/settings";
 import { useAgentEvents } from "./hooks/useAgentEvents";
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import clsx from "clsx";
 import "./App.css";
 
 function App() {
-  const { isTerminalOpen, isEditorOpen } = useUIStore();
+  const { isTerminalOpen, isEditorOpen, terminalHeight, setTerminalHeight } = useUIStore();
   const { setWorkspacePath } = useStore();
   const { setPendingRequest } = useConfirmationStore();
   const { setDiffMode: _setDiffMode } = useSettingsStore();
+  const terminalDragRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  const terminalRafRef = useRef<number | null>(null);
+  const terminalPendingHeightRef = useRef<number | null>(null);
+  const [isResizingTerminal, setIsResizingTerminal] = useState(false);
+
+  const clampTerminalHeight = useCallback((height: number) => {
+    const minHeight = 160;
+    const maxHeight = Math.max(220, Math.floor(window.innerHeight * 0.45));
+    return Math.min(maxHeight, Math.max(minHeight, height));
+  }, []);
+
+  const handlePointerMove = useCallback((event: PointerEvent) => {
+    if (!terminalDragRef.current) return;
+    const delta = terminalDragRef.current.startY - event.clientY;
+    const nextHeight = clampTerminalHeight(terminalDragRef.current.startHeight + delta);
+    terminalPendingHeightRef.current = nextHeight;
+    if (terminalRafRef.current === null) {
+      terminalRafRef.current = window.requestAnimationFrame(() => {
+        if (terminalPendingHeightRef.current !== null) {
+          setTerminalHeight(terminalPendingHeightRef.current);
+        }
+        terminalRafRef.current = null;
+      });
+    }
+  }, [clampTerminalHeight, setTerminalHeight]);
+
+  const handlePointerUp = useCallback(() => {
+    terminalDragRef.current = null;
+    setIsResizingTerminal(false);
+    window.removeEventListener("pointermove", handlePointerMove);
+    window.removeEventListener("pointerup", handlePointerUp);
+    if (terminalRafRef.current !== null) {
+      window.cancelAnimationFrame(terminalRafRef.current);
+      terminalRafRef.current = null;
+    }
+  }, [handlePointerMove]);
+
+  const handlePointerDown = useCallback((event: React.PointerEvent) => {
+    if (!isTerminalOpen) return;
+    event.preventDefault();
+    terminalDragRef.current = { startY: event.clientY, startHeight: terminalHeight };
+    setIsResizingTerminal(true);
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+  }, [handlePointerMove, handlePointerUp, isTerminalOpen, terminalHeight]);
+
+  useEffect(() => {
+    const onResize = () => {
+      setTerminalHeight(clampTerminalHeight(terminalHeight));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [clampTerminalHeight, setTerminalHeight, terminalHeight]);
+
+  useEffect(() => () => handlePointerUp(), [handlePointerUp]);
+  useEffect(() => () => {
+    if (terminalRafRef.current !== null) {
+      window.cancelAnimationFrame(terminalRafRef.current);
+    }
+  }, []);
 
   useAgentEvents(); // Hook to listen for backend events
 
@@ -87,17 +147,27 @@ function App() {
           <Chat />
 
           {/* Bottom Terminal Pane */}
+          {isTerminalOpen && (
+            <div
+              className="h-2 cursor-row-resize bg-[var(--bg-base)]/80 hover:bg-[var(--bg-elevated)] transition-colors flex items-center justify-center touch-none"
+              onPointerDown={handlePointerDown}
+              title="Drag to resize terminal"
+            >
+              <div className="h-1 w-12 rounded-full bg-zinc-700/60" />
+            </div>
+          )}
           <div className={clsx(
-            "h-64 border-t border-[var(--border)] bg-[#09090B] p-0 overflow-hidden shrink-0 transition-all duration-300",
-            isTerminalOpen ? "translate-y-0 opacity-100" : "translate-y-full opacity-0 h-0"
-          )}>
+            "border-t border-[var(--border)] bg-[#09090B] p-0 overflow-hidden shrink-0 transition-transform transition-opacity duration-200",
+            isTerminalOpen ? "translate-y-0 opacity-100" : "translate-y-full opacity-0 h-0",
+            isResizingTerminal && "transition-none"
+          )} style={{ height: isTerminalOpen ? terminalHeight : 0 }}>
             <Terminal />
           </div>
         </div>
 
         {/* Secondary Focal Point: The Editor (On the right, toggleable) */}
         {isEditorOpen && (
-          <div className="w-[550px] flex-shrink-0 border-l border-[var(--border)] bg-[var(--bg-surface)] shadow-2xl z-20 flex flex-col">
+          <div className="w-[550px] max-w-[45vw] min-w-[320px] flex-shrink-0 border-l border-[var(--border)] bg-[var(--bg-surface)] shadow-2xl z-20 flex flex-col">
             <div className="h-10 border-b border-[var(--border)] bg-[var(--bg-base)]/50 flex items-center px-4 justify-between shrink-0">
               <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Observation Window</span>
             </div>

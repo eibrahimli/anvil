@@ -1,5 +1,6 @@
 use portable_pty::{CommandBuilder, NativePtySystem, PtyPair, PtySize, PtySystem};
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use tauri::{AppHandle, Emitter};
@@ -7,6 +8,7 @@ use tauri::{AppHandle, Emitter};
 pub struct TerminalManager {
     pty_pair: Option<Arc<Mutex<PtyPair>>>,
     writer: Option<Arc<Mutex<Box<dyn Write + Send>>>>,
+    current_dir: Option<PathBuf>,
 }
 
 impl TerminalManager {
@@ -14,11 +16,24 @@ impl TerminalManager {
         Self {
             pty_pair: None,
             writer: None,
+            current_dir: None,
         }
     }
 
-    pub fn spawn(&mut self, app: AppHandle) -> Result<(), String> {
+    pub fn spawn(&mut self, app: AppHandle, workspace_root: Option<PathBuf>) -> Result<(), String> {
         if self.pty_pair.is_some() {
+            if let (Some(path), Some(writer)) = (workspace_root, &self.writer) {
+                if path.exists() {
+                    let normalized = path.clone();
+                    if self.current_dir.as_ref() != Some(&normalized) {
+                        let safe_path = path.to_string_lossy().replace('"', "\\\"");
+                        let mut w = writer.lock().map_err(|_| "Failed to lock writer")?;
+                        w.write_all(format!("cd \"{}\"\n", safe_path).as_bytes())
+                            .map_err(|e| e.to_string())?;
+                        self.current_dir = Some(normalized);
+                    }
+                }
+            }
             return Ok(());
         }
 
@@ -33,7 +48,13 @@ impl TerminalManager {
             })
             .map_err(|e| e.to_string())?;
 
-        let cmd = CommandBuilder::new("bash");
+        let mut cmd = CommandBuilder::new("bash");
+        if let Some(path) = workspace_root.clone() {
+            if path.exists() {
+                cmd.cwd(path.clone());
+                self.current_dir = Some(path);
+            }
+        }
         let _child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
 
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
