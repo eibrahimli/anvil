@@ -56,4 +56,15 @@ describe("ActivityStream grouping", () => {
         expect(screen.getByTestId("timeline-view")).toBeInTheDocument();
         expect(screen.getAllByTestId("timeline-node")).toHaveLength(2);
     });
+
+    it("shows a loading block for empty streaming assistant message", () => {
+        const messages: Message[] = [
+            { role: "User", content: "Hello" },
+            { role: "Assistant", content: "" }
+        ];
+
+        render(<ActivityStream messages={messages} isLoading={true} />);
+
+        expect(screen.getByTestId("activity-loading")).toBeInTheDocument();
+    });
 });
