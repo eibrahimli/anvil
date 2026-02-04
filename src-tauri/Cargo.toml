@@ -41,6 +41,7 @@ ignore = "0.4.23"
 dirs = "5.0"
 grep = "0.3.2"
 regex = "1.11.1"
+url = "2.5.4"
 
 # Phase 1: Tool Dependencies
 glob = "0.3.1"
@@ -59,4 +60,3 @@ schemars = "0.8"
 
 [dev-dependencies]
 tempfile = "3.10"
-

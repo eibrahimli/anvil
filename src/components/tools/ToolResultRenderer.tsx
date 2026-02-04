@@ -6,6 +6,7 @@ import { SearchCard } from './SearchCard';
 import { EditFileCard } from './EditFileCard';
 import { SymbolCard } from './SymbolCard';
 import { GenericToolCard } from './GenericToolCard';
+import { LspCard } from './LspCard';
 
 interface ToolResultRendererProps {
   toolName: string;
@@ -124,6 +125,14 @@ export function ToolResultRenderer({ toolName, result }: ToolResultRendererProps
             matches: data.matches || [],
             count: data.count || 0,
           }}
+        />
+      );
+    }
+
+    case 'lsp': {
+      return (
+        <LspCard
+          data={parsedResult as Record<string, unknown>}
         />
       );
     }

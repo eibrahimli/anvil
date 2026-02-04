@@ -107,7 +107,8 @@ export function Chat() {
                     tool.includes("glob") ||
                     tool.includes("list") ||
                     tool.includes("symbol") ||
-                    tool.includes("web")
+                    tool.includes("web") ||
+                    tool.includes("lsp")
                 ) return "researching";
                 if (tool.includes("todo")) return "planning";
                 if (

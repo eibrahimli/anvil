@@ -3,7 +3,7 @@ use crate::adapters::openai::OpenAIAdapter;
 use crate::adapters::gemini::GeminiAdapter;
 use crate::adapters::anthropic::AnthropicAdapter;
 use crate::adapters::ollama::OllamaAdapter;
-use crate::adapters::tools::{files::ReadFileTool, files::WriteFileTool, files::EditFileTool, bash::BashTool, git::GitTool, search::SearchTool, symbols::SymbolsTool, glob::GlobTool, list::ListTool, web::WebFetchTool, patch::PatchTool, question::QuestionTool, todo::TodoWriteTool, todoread::TodoReadTool, skill::SkillTool, mcp_tool::load_mcp_tools};
+use crate::adapters::tools::{files::ReadFileTool, files::WriteFileTool, files::EditFileTool, bash::BashTool, git::GitTool, search::SearchTool, symbols::SymbolsTool, glob::GlobTool, list::ListTool, web::WebFetchTool, patch::PatchTool, question::QuestionTool, todo::TodoWriteTool, todoread::TodoReadTool, skill::SkillTool, lsp::LspTool, mcp_tool::load_mcp_tools};
 use crate::domain::agent::Agent;
 use crate::domain::orchestrator::{Orchestrator, Task, TaskStatus};
 use crate::domain::models::{AgentSession, AgentPermissions, ModelId, AgentMode, AgentRole};
@@ -128,6 +128,7 @@ pub async fn create_session(
         )),
         Arc::new(GitTool::new(path.clone())),
         Arc::new(SearchTool::new(path.clone())),
+        Arc::new(LspTool::new(path.clone(), permission_manager.clone(), config.lsp.clone())),
         Arc::new(EditFileTool::new(
             path.clone(),
             id.to_string(),
@@ -399,6 +400,7 @@ pub async fn replay_session(
         )),
         Arc::new(GitTool::new(path.clone())),
         Arc::new(SearchTool::new(path.clone())),
+        Arc::new(LspTool::new(path.clone(), permission_manager.clone(), config.lsp.clone())),
         Arc::new(EditFileTool::new(
             path.clone(),
             uuid.to_string(),
@@ -522,6 +524,7 @@ pub async fn add_agent_to_orchestrator(
         )),
         Arc::new(GitTool::new(path.clone())),
         Arc::new(SearchTool::new(path.clone())),
+        Arc::new(LspTool::new(path.clone(), permission_manager.clone(), config.lsp.clone())),
         Arc::new(EditFileTool::new(
             path.clone(),
             agent_id.clone(),
@@ -1171,5 +1174,4 @@ pub async fn load_permission_config(
     
     Ok(Some(config.permission))
 }
-
 

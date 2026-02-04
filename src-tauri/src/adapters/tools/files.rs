@@ -9,7 +9,7 @@ use tokio::sync::oneshot;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Clone)]
 struct ConfirmationRequest {
@@ -273,6 +273,86 @@ pub struct EditFileTool {
     pub permission_manager: Arc<tokio::sync::Mutex<crate::config::PermissionConfig>>,
 }
 
+#[derive(Deserialize, Clone)]
+struct EditBlock {
+    old_text: String,
+    new_text: String,
+    #[serde(default)]
+    occurrence: Option<usize>,
+    #[serde(default)]
+    replace_all: Option<bool>,
+}
+
+fn replace_nth_occurrence(
+    content: &str,
+    old_text: &str,
+    new_text: &str,
+    occurrence: usize,
+) -> Result<String, String> {
+    let mut match_iter = content.match_indices(old_text).enumerate();
+    while let Some((index, (start, _))) = match_iter.next() {
+        if index == occurrence {
+            let mut updated = String::with_capacity(content.len() - old_text.len() + new_text.len());
+            updated.push_str(&content[..start]);
+            updated.push_str(new_text);
+            updated.push_str(&content[start + old_text.len()..]);
+            return Ok(updated);
+        }
+    }
+
+    Err(format!("Search block occurrence {} not found.", occurrence))
+}
+
+fn apply_edits_to_content(
+    original_content: &str,
+    edits: &[EditBlock],
+    path_label: &str,
+) -> Result<String, String> {
+    let mut updated_content = original_content.to_string();
+
+    for edit in edits {
+        if edit.old_text.is_empty() {
+            return Err("Invalid edit block: old_text cannot be empty".to_string());
+        }
+
+        let matches: Vec<usize> = updated_content.match_indices(&edit.old_text)
+            .map(|(idx, _)| idx)
+            .collect();
+
+        if matches.is_empty() {
+            return Err(format!(
+                "Could not find exact match for search block in {}. Ensure old_text matches the file content exactly, including whitespace.",
+                path_label
+            ));
+        }
+
+        if edit.replace_all.unwrap_or(false) {
+            if edit.occurrence.is_some() {
+                return Err("Invalid edit block: replace_all cannot be combined with occurrence".to_string());
+            }
+            updated_content = updated_content.replace(&edit.old_text, &edit.new_text);
+            continue;
+        }
+
+        let occurrence = match edit.occurrence {
+            Some(index) => index,
+            None => {
+                if matches.len() > 1 {
+                    return Err(format!(
+                        "Search block is not unique in {}. Provide more context in old_text or specify occurrence.",
+                        path_label
+                    ));
+                }
+                0
+            }
+        };
+
+        updated_content = replace_nth_occurrence(&updated_content, &edit.old_text, &edit.new_text, occurrence)?;
+    }
+
+    Ok(updated_content)
+}
+
 impl EditFileTool {
     pub fn new(
         workspace_root: PathBuf,
@@ -320,6 +400,14 @@ impl Tool for EditFileTool {
                                 "new_text": {
                                     "type": "string",
                                     "description": "The text to replace it with"
+                                },
+                                "occurrence": {
+                                    "type": "integer",
+                                    "description": "0-based occurrence to replace if old_text appears multiple times"
+                                },
+                                "replace_all": {
+                                    "type": "boolean",
+                                    "description": "Replace all occurrences of old_text"
                                 }
                             },
                             "required": ["old_text", "new_text"]
@@ -376,25 +464,13 @@ impl Tool for EditFileTool {
         let original_content = fs::read_to_string(&path).await
             .map_err(|e| format!("Failed to read file: {}", e))?;
         
-        let mut new_content = original_content.clone();
+        let edits: Vec<EditBlock> = edits_val
+            .iter()
+            .map(|edit| serde_json::from_value(edit.clone())
+                .map_err(|e| format!("Invalid edit block: {}", e)))
+            .collect::<Result<Vec<_>, _>>()?;
 
-        for edit in edits_val {
-            let old_text = edit.get("old_text").and_then(|v| v.as_str())
-                .ok_or("Invalid edit block: missing old_text")?;
-            let replace_text = edit.get("new_text").and_then(|v| v.as_str())
-                .ok_or("Invalid edit block: missing new_text")?;
-
-            if !new_content.contains(old_text) {
-                return Err(format!("Could not find exact match for search block in {}. Ensure old_text matches the file content exactly, including whitespace.", path_str));
-            }
-
-            // Check if it's unique
-            if new_content.matches(old_text).count() > 1 {
-                return Err(format!("Search block is not unique in {}. Provide more context in old_text.", path_str));
-            }
-
-            new_content = new_content.replace(old_text, replace_text);
-        }
+        let new_content = apply_edits_to_content(&original_content, &edits, path_str)?;
 
         // Check if allowed by permission manager
         let allowed = {
@@ -451,3 +527,78 @@ impl Tool for EditFileTool {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{apply_edits_to_content, EditBlock};
+
+    #[test]
+    fn apply_edits_single_match() {
+        let content = "alpha\nbeta\ngamma";
+        let edits = vec![EditBlock {
+            old_text: "beta".to_string(),
+            new_text: "theta".to_string(),
+            occurrence: None,
+            replace_all: None,
+        }];
+
+        let updated = apply_edits_to_content(content, &edits, "test.txt").unwrap();
+        assert!(updated.contains("theta"));
+        assert!(!updated.contains("beta"));
+    }
+
+    #[test]
+    fn apply_edits_requires_occurrence_when_multiple() {
+        let content = "dup\nvalue\ndup";
+        let edits = vec![EditBlock {
+            old_text: "dup".to_string(),
+            new_text: "swap".to_string(),
+            occurrence: None,
+            replace_all: None,
+        }];
+
+        let err = apply_edits_to_content(content, &edits, "test.txt").unwrap_err();
+        assert!(err.contains("not unique"));
+    }
+
+    #[test]
+    fn apply_edits_occurrence_replaces_specific_match() {
+        let content = "dup\nvalue\ndup";
+        let edits = vec![EditBlock {
+            old_text: "dup".to_string(),
+            new_text: "swap".to_string(),
+            occurrence: Some(1),
+            replace_all: None,
+        }];
+
+        let updated = apply_edits_to_content(content, &edits, "test.txt").unwrap();
+        assert_eq!(updated, "dup\nvalue\nswap");
+    }
+
+    #[test]
+    fn apply_edits_replace_all() {
+        let content = "dup\nvalue\ndup";
+        let edits = vec![EditBlock {
+            old_text: "dup".to_string(),
+            new_text: "swap".to_string(),
+            occurrence: None,
+            replace_all: Some(true),
+        }];
+
+        let updated = apply_edits_to_content(content, &edits, "test.txt").unwrap();
+        assert_eq!(updated, "swap\nvalue\nswap");
+    }
+
+    #[test]
+    fn apply_edits_empty_old_text_fails() {
+        let content = "data";
+        let edits = vec![EditBlock {
+            old_text: "".to_string(),
+            new_text: "swap".to_string(),
+            occurrence: None,
+            replace_all: None,
+        }];
+
+        let err = apply_edits_to_content(content, &edits, "test.txt").unwrap_err();
+        assert!(err.contains("old_text cannot be empty"));
+    }
+}

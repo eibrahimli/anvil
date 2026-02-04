@@ -106,7 +106,8 @@ export function ActivityStream({ messages, isLoading, view = 'stream' }: Activit
             toolName.includes('glob') ||
             toolName.includes('list') ||
             toolName.includes('symbol') ||
-            toolName.includes('web')
+            toolName.includes('web') ||
+            toolName.includes('lsp')
           ) {
             actionType = 'search';
           }
