@@ -5,7 +5,7 @@ import { useStore } from "../store";
 import { useProviderStore } from "../stores/provider";
 import { useUIStore, AgentMode } from "../stores/ui";
 import { Message } from "../types";
-import { ChevronDown, Send, Sparkles, History as HistoryIcon, Terminal as TermIcon, Zap, Image as ImageIcon } from "lucide-react";
+import { ChevronDown, Send, Sparkles, History as HistoryIcon, Terminal as TermIcon, Zap, Image as ImageIcon, List as ListIcon, Clock } from "lucide-react";
 import { QuestionModal } from "./QuestionModal";
 import { TodoIndicator } from "./TodoIndicator";
 import { ActivityStream } from "./ActivityStream";
@@ -20,6 +20,7 @@ export function Chat() {
     const { activeMode, setActiveMode, temperature, setTemperature, isEditorOpen: _isEditorOpen, setSettingsOpen, isQuestionOpen } = useUIStore();
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
+    const [activityView, setActivityView] = useState<'stream' | 'timeline'>("stream");
     const [activeDropdown, setActiveDropdown] = useState<'mode' | 'model' | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const modeDropdownRef = useRef<HTMLDivElement>(null);
@@ -243,6 +244,13 @@ export function Chat() {
 
                 <div className="flex items-center gap-3">
                     <TodoIndicator />
+                    <button
+                        className="p-1.5 hover:bg-[var(--bg-elevated)] rounded-md text-gray-400 transition-colors"
+                        title={activityView === "stream" ? "Switch to timeline view" : "Switch to stream view"}
+                        onClick={() => setActivityView(activityView === "stream" ? "timeline" : "stream")}
+                    >
+                        {activityView === "stream" ? <Clock size={16} /> : <ListIcon size={16} />}
+                    </button>
                     <button className="p-1.5 hover:bg-[var(--bg-elevated)] rounded-md text-gray-400 transition-colors">
                         <HistoryIcon size={16} />
                     </button>
@@ -267,6 +275,7 @@ export function Chat() {
                 <ActivityStream 
                     messages={messages} 
                     isLoading={loading}
+                    view={activityView}
                 />
             </div>
 

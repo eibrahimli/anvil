@@ -32,4 +32,28 @@ describe("ActivityStream grouping", () => {
         expect(within(assistantGroup).getByText("bash")).toBeInTheDocument();
         expect(within(assistantGroup).getByText("All done.")).toBeInTheDocument();
     });
+
+    it("renders a timeline view with nodes", () => {
+        const messages: Message[] = [
+            { role: "User", content: "Run the tests" },
+            {
+                role: "Assistant",
+                content: [
+                    "Thinking about the best approach.",
+                    "",
+                    "> Executing tool: `bash`",
+                    "> Result:",
+                    "```",
+                    "tests passed",
+                    "```",
+                    "All done."
+                ].join("\n")
+            }
+        ];
+
+        render(<ActivityStream messages={messages} view="timeline" />);
+
+        expect(screen.getByTestId("timeline-view")).toBeInTheDocument();
+        expect(screen.getAllByTestId("timeline-node")).toHaveLength(2);
+    });
 });

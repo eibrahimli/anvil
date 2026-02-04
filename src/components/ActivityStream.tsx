@@ -26,9 +26,10 @@ interface ActivityGroup {
 interface ActivityStreamProps {
   messages: Message[];
   isLoading?: boolean;
+  view?: 'stream' | 'timeline';
 }
 
-export function ActivityStream({ messages, isLoading }: ActivityStreamProps) {
+export function ActivityStream({ messages, isLoading, view = 'stream' }: ActivityStreamProps) {
   // Parse messages into activity items
   const groups = useMemo(() => {
     const grouped: ActivityGroup[] = [];
@@ -138,64 +139,104 @@ export function ActivityStream({ messages, isLoading }: ActivityStreamProps) {
   return (
     <div className="space-y-4">
       {/* Activity Items */}
-      <div className="space-y-3">
-        {groups.map((group) => (
+      <div className={clsx(view === 'timeline' && "relative")}
+        data-testid={view === 'timeline' ? 'timeline-view' : undefined}
+      >
+        {view === 'timeline' && (
           <div
-            key={group.id}
-            data-testid="activity-group"
-            className={clsx(
-              "flex",
-              group.role === 'user' ? "justify-end" : "justify-start"
-            )}
-          >
-            <div
-              className={clsx(
-                "rounded-xl border px-4 py-3 space-y-3",
-                group.role === 'user'
-                  ? "max-w-[85%] bg-zinc-900/50 border-zinc-800/60"
-                  : "w-full bg-[var(--bg-surface)]/40 border-[var(--border)]"
-              )}
-            >
-              {group.items.map((activity) => {
-                switch (activity.type) {
-                  case 'message':
-                    return (
-                      <MessageCard
-                        key={activity.id}
-                        role={activity.role!}
-                        content={activity.content}
-                        timestamp={activity.timestamp}
-                      />
-                    );
-                    
-                  case 'thinking':
-                    return (
-                      <ThinkingBlock
-                        key={activity.id}
-                        content={activity.content}
-                        isThinking={activity.isThinking}
-                      />
-                    );
-                    
-                  case 'action':
-                    return (
-                      <ActionCard
-                        key={activity.id}
-                        type={activity.actionType!}
-                        title={activity.actionTitle!}
-                        description={activity.actionDescription}
-                        content={activity.actionContent}
-                        status={activity.actionStatus!}
-                      />
-                    );
-                    
-                  default:
-                    return null;
-                }
-              })}
-            </div>
-          </div>
-        ))}
+            data-testid="timeline-rail"
+            className="absolute left-3 top-2 bottom-2 w-px bg-[var(--border)]"
+          />
+        )}
+        <div className="space-y-3">
+          {groups.map((group) => {
+            const groupContainer = (
+              <div
+                className={clsx(
+                  "relative overflow-hidden rounded-xl border px-4 py-3",
+                  group.role === 'user'
+                    ? "max-w-[85%] bg-transparent border-zinc-800/30"
+                    : "w-full border-white/5 bg-[linear-gradient(180deg,rgba(139,92,246,0.08),rgba(24,24,27,0.55))] shadow-[0_10px_30px_rgba(0,0,0,0.2)]"
+                )}
+              >
+                {group.role === 'assistant' && (
+                  <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(139,92,246,0.12),_transparent_60%)]" />
+                )}
+                <div className="relative z-10 space-y-3">
+                  {group.items.map((activity) => {
+                    switch (activity.type) {
+                      case 'message':
+                        return (
+                          <MessageCard
+                            key={activity.id}
+                            role={activity.role!}
+                            content={activity.content}
+                            timestamp={activity.timestamp}
+                          />
+                        );
+                        
+                      case 'thinking':
+                        return (
+                          <ThinkingBlock
+                            key={activity.id}
+                            content={activity.content}
+                            isThinking={activity.isThinking}
+                          />
+                        );
+                        
+                      case 'action':
+                        return (
+                          <ActionCard
+                            key={activity.id}
+                            type={activity.actionType!}
+                            title={activity.actionTitle!}
+                            description={activity.actionDescription}
+                            content={activity.actionContent}
+                            status={activity.actionStatus!}
+                          />
+                        );
+                        
+                      default:
+                        return null;
+                    }
+                  })}
+                </div>
+              </div>
+            );
+
+            if (view === 'timeline') {
+              return (
+                <div
+                  key={group.id}
+                  data-testid="activity-group"
+                  className="relative flex gap-4 pl-8"
+                >
+                  <div
+                    data-testid="timeline-node"
+                    className={clsx(
+                      "absolute left-2 top-4 h-2.5 w-2.5 rounded-full ring-2 ring-[var(--bg-base)]",
+                      group.role === 'user' ? "bg-zinc-500" : "bg-[var(--accent)]"
+                    )}
+                  />
+                  {groupContainer}
+                </div>
+              );
+            }
+
+            return (
+              <div
+                key={group.id}
+                data-testid="activity-group"
+                className={clsx(
+                  "flex",
+                  group.role === 'user' ? "justify-end" : "justify-start"
+                )}
+              >
+                {groupContainer}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Loading / Thinking Indicator - only show if no recent thinking content */}
