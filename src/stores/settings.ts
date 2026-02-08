@@ -26,7 +26,16 @@ export interface PermissionConfig {
     read: PermissionValue;
     write: PermissionValue;
     skill: PermissionValue;
-    // We can add external_directory later if needed
+    list: PermissionValue;
+    glob: PermissionValue;
+    grep: PermissionValue;
+    webfetch: PermissionValue;
+    task: PermissionValue;
+    lsp: PermissionValue;
+    todoread: PermissionValue;
+    todowrite: PermissionValue;
+    doom_loop: PermissionValue;
+    external_directory?: Record<string, PermissionAction>;
 }
 
 interface SettingsState {
@@ -47,13 +56,17 @@ interface SettingsState {
 }
 
 const defaultToolPermission: ToolPermission = {
-    default: 'ask',
+    default: 'allow',
     rules: []
 };
 
-// Skills are allowed by default as per Rust config
 const defaultSkillPermission: ToolPermission = {
     default: 'allow',
+    rules: []
+};
+
+const defaultAskPermission: ToolPermission = {
+    default: 'ask',
     rules: []
 };
 
@@ -72,6 +85,15 @@ export const useSettingsStore = create<SettingsState>()(
               edit: { ...defaultToolPermission },
               bash: { ...defaultToolPermission },
               skill: { ...defaultSkillPermission },
+              list: { ...defaultToolPermission },
+              glob: { ...defaultToolPermission },
+              grep: { ...defaultToolPermission },
+              webfetch: { ...defaultToolPermission },
+              task: { ...defaultToolPermission },
+              lsp: { ...defaultToolPermission },
+              todoread: { ...defaultToolPermission },
+              todowrite: { ...defaultToolPermission },
+              doom_loop: { ...defaultAskPermission },
             },
             setTheme: (theme) => set({ theme }),
             setFontFamily: (fontFamily) => set({ fontFamily }),
@@ -90,7 +112,7 @@ export const useSettingsStore = create<SettingsState>()(
                     // Migration from version 0 to 1
                     // Convert string permissions to object permissions
                     const newState = { ...persistedState } as SettingsState;
-                    const tools = ['read', 'write', 'edit', 'bash', 'skill'];
+                    const tools = ['read', 'write', 'edit', 'bash', 'skill', 'list', 'glob', 'grep', 'webfetch', 'task', 'lsp', 'todoread', 'todowrite', 'doom_loop'];
                     
                     if (newState.permissions) {
                         tools.forEach(tool => {

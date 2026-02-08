@@ -619,10 +619,10 @@ export function WorkflowsPanel() {
                     : "border-[var(--border)] bg-[var(--bg-surface)]"
                 )}
               >
-                <div className="flex items-center gap-2 px-3 py-2">
+                <div className="flex flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center">
                   <button
                     onClick={() => handleToggle(workflow.id)}
-                    className="flex items-center gap-2 text-left flex-1"
+                    className="flex items-center gap-2 text-left flex-1 min-w-0"
                   >
                     <div className="text-zinc-500">
                       {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -637,28 +637,30 @@ export function WorkflowsPanel() {
                         </div>
                       )}
                     </div>
-                    <div className="text-[10px] text-zinc-500 bg-zinc-800/50 px-2 py-0.5 rounded">
+                    <div className="text-[10px] text-zinc-500 bg-zinc-800/50 px-2 py-0.5 rounded shrink-0">
                       {workflow.steps ?? 0} steps
                     </div>
                   </button>
-                  <button
-                    onClick={() => startEditWorkflow(workflow.id)}
-                    className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/60"
-                    title="Edit workflow"
-                  >
-                    <Pencil size={14} />
-                  </button>
-                  <button
-                    onClick={() => handleAskDelete(workflow.id, workflow.name || workflow.id)}
-                    className={clsx(
-                      "p-1.5 rounded-md text-zinc-500 hover:text-red-400 hover:bg-zinc-800/60",
-                      deletingId === workflow.id && "opacity-50 cursor-wait"
-                    )}
-                    title="Delete workflow"
-                    disabled={deletingId === workflow.id}
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  <div className="flex items-center gap-2 sm:ml-auto shrink-0">
+                    <button
+                      onClick={() => startEditWorkflow(workflow.id)}
+                      className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/60"
+                      title="Edit workflow"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                    <button
+                      onClick={() => handleAskDelete(workflow.id, workflow.name || workflow.id)}
+                      className={clsx(
+                        "p-1.5 rounded-md text-zinc-500 hover:text-red-400 hover:bg-zinc-800/60",
+                        deletingId === workflow.id && "opacity-50 cursor-wait"
+                      )}
+                      title="Delete workflow"
+                      disabled={deletingId === workflow.id}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
 
                 {isExpanded && (

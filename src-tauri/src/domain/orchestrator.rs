@@ -89,7 +89,7 @@ impl Orchestrator {
             },
         };
 
-        let agent = Agent::new(session, model, tools, permission_manager);
+        let agent = Agent::new(session, model, tools, permission_manager, None, None);
         let mut agents = self.agents.lock().await;
         agents.insert(agent_id, Arc::new(tokio::sync::Mutex::new(agent)));
         Ok(())

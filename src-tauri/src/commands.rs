@@ -8,7 +8,7 @@ use crate::domain::agent::Agent;
 use crate::domain::orchestrator::{Orchestrator, Task, TaskStatus};
 use crate::domain::models::{AgentSession, AgentPermissions, ModelId, AgentMode, AgentRole};
 use crate::domain::ports::ModelAdapter;
-use crate::config::manager::{Config, PermissionConfig};
+use crate::config::manager::PermissionConfig;
 use crate::workflows::Workflow;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -114,7 +114,13 @@ pub async fn create_session(
     let permission_manager = Arc::new(tokio::sync::Mutex::new(config.permission.clone()));
 
     let mut tools: Vec<Arc<dyn crate::domain::ports::Tool>> = vec![
-        Arc::new(ReadFileTool::new(path.clone(), permission_manager.clone())),
+        Arc::new(ReadFileTool::new(
+            path.clone(),
+            id.to_string(),
+            app.clone(),
+            state.pending_confirmations.clone(),
+            permission_manager.clone()
+        )),
         Arc::new(WriteFileTool::new(
             path.clone(),
             id.to_string(),
@@ -131,7 +137,14 @@ pub async fn create_session(
         )),
         Arc::new(GitTool::new(path.clone())),
         Arc::new(SearchTool::new(path.clone())),
-        Arc::new(LspTool::new(path.clone(), permission_manager.clone(), config.lsp.clone())),
+        Arc::new(LspTool::new(
+            path.clone(),
+            permission_manager.clone(),
+            config.lsp.clone(),
+            id.to_string(),
+            app.clone(),
+            state.pending_confirmations.clone()
+        )),
         Arc::new(EditFileTool::new(
             path.clone(),
             id.to_string(),
@@ -147,7 +160,13 @@ pub async fn create_session(
         Arc::new(QuestionTool::new(app.clone())),
         Arc::new(TodoWriteTool::new(path.clone())),
         Arc::new(TodoReadTool::new(path.clone())),
-        Arc::new(SkillTool::new(path.clone(), permission_manager.clone())),
+        Arc::new(SkillTool::new(
+            path.clone(),
+            id.to_string(),
+            app.clone(),
+            state.pending_confirmations.clone(),
+            permission_manager.clone()
+        )),
     ];
 
     // Load MCP tools from configuration
@@ -171,7 +190,14 @@ pub async fn create_session(
         },
     };
 
-    let agent = Agent::new(new_session.clone(), model.clone(), tools, permission_manager);
+    let agent = Agent::new(
+        new_session.clone(),
+        model.clone(),
+        tools,
+        permission_manager,
+        Some(app.clone()),
+        Some(state.pending_confirmations.clone()),
+    );
 
     let mut agents = state.agents.lock().await;
     agents.insert(id, Arc::new(Mutex::new(agent)));
@@ -336,11 +362,64 @@ pub async fn list_sessions(
 }
 
 #[tauri::command]
+pub async fn git_status_summary(
+    workspace_path: String,
+) -> Result<serde_json::Value, String> {
+    use crate::adapters::tools::git::GitTool;
+    use crate::domain::ports::Tool;
+
+    let path = PathBuf::from(&workspace_path);
+    let tool = GitTool::new(path);
+    let input = serde_json::json!({
+        "command": "status"
+    });
+
+    tool.execute(input).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn git_file_at_head(
+    workspace_path: String,
+    file_path: String,
+) -> Result<String, String> {
+    use git2::Repository;
+    use std::path::Path;
+
+    let repo = Repository::open(&workspace_path)
+        .map_err(|e| format!("Failed to open git repository: {}", e))?;
+    let head = repo.head().map_err(|e| format!("Failed to read HEAD: {}", e))?;
+    let commit = head.peel_to_commit().map_err(|e| format!("Failed to get commit: {}", e))?;
+    let tree = commit.tree().map_err(|e| format!("Failed to get tree: {}", e))?;
+
+    let repo_root = Path::new(&workspace_path);
+    let relative_path = Path::new(&file_path)
+        .strip_prefix(repo_root)
+        .map_err(|_| "File is not within workspace".to_string())?;
+
+    let entry = tree.get_path(relative_path)
+        .map_err(|_| "File not found in HEAD".to_string())?;
+    let object = entry.to_object(&repo)
+        .map_err(|e| format!("Failed to read object: {}", e))?;
+    let blob = object.as_blob().ok_or("Object is not a blob".to_string())?;
+    let content = String::from_utf8_lossy(blob.content()).to_string();
+    Ok(content)
+}
+
+#[tauri::command]
 pub async fn delete_session(
     state: State<'_, AppState>,
     session_id: String,
 ) -> Result<(), String> {
     state.with_storage(|storage| storage.delete_session(&session_id))
+}
+
+#[tauri::command]
+pub async fn rename_session(
+    state: State<'_, AppState>,
+    session_id: String,
+    name: Option<String>,
+) -> Result<(), String> {
+    state.with_storage(|storage| storage.rename_session(&session_id, name))
 }
 
 #[tauri::command]
@@ -353,7 +432,7 @@ pub async fn replay_session(
 ) -> Result<String, String> {
     let original_session = state.with_storage(|storage| storage.load_session(&session_id))?;
 
-    let uuid = Uuid::new_v4();
+    let uuid = original_session.id;
     let path = original_session.workspace_path.clone();
 
     let api_key = api_key.unwrap_or_default();
@@ -386,7 +465,13 @@ pub async fn replay_session(
     let permission_manager = Arc::new(tokio::sync::Mutex::new(config.permission.clone()));
 
     let mut tools: Vec<Arc<dyn crate::domain::ports::Tool>> = vec![
-        Arc::new(ReadFileTool::new(path.clone(), permission_manager.clone())),
+        Arc::new(ReadFileTool::new(
+            path.clone(),
+            uuid.to_string(),
+            app.clone(),
+            state.pending_confirmations.clone(),
+            permission_manager.clone()
+        )),
         Arc::new(WriteFileTool::new(
             path.clone(),
             uuid.to_string(),
@@ -403,7 +488,14 @@ pub async fn replay_session(
         )),
         Arc::new(GitTool::new(path.clone())),
         Arc::new(SearchTool::new(path.clone())),
-        Arc::new(LspTool::new(path.clone(), permission_manager.clone(), config.lsp.clone())),
+        Arc::new(LspTool::new(
+            path.clone(),
+            permission_manager.clone(),
+            config.lsp.clone(),
+            uuid.to_string(),
+            app.clone(),
+            state.pending_confirmations.clone()
+        )),
         Arc::new(EditFileTool::new(
             path.clone(),
             uuid.to_string(),
@@ -419,7 +511,13 @@ pub async fn replay_session(
         Arc::new(QuestionTool::new(app.clone())),
         Arc::new(TodoWriteTool::new(path.clone())),
         Arc::new(TodoReadTool::new(path.clone())),
-        Arc::new(SkillTool::new(path.clone(), permission_manager.clone())),
+        Arc::new(SkillTool::new(
+            path.clone(),
+            uuid.to_string(),
+            app.clone(),
+            state.pending_confirmations.clone(),
+            permission_manager.clone()
+        )),
     ];
 
     // Load MCP tools from configuration
@@ -443,7 +541,14 @@ pub async fn replay_session(
         },
     };
 
-    let agent = Agent::new(new_session, model, tools, permission_manager);
+    let agent = Agent::new(
+        new_session,
+        model,
+        tools,
+        permission_manager,
+        Some(app.clone()),
+        Some(state.pending_confirmations.clone()),
+    );
 
     let mut agents = state.agents.lock().await;
     agents.insert(uuid, Arc::new(Mutex::new(agent)));
@@ -510,7 +615,13 @@ pub async fn add_agent_to_orchestrator(
     let permission_manager = Arc::new(tokio::sync::Mutex::new(config.permission.clone()));
 
     let mut tools: Vec<Arc<dyn crate::domain::ports::Tool>> = vec![
-        Arc::new(ReadFileTool::new(path.clone(), permission_manager.clone())),
+        Arc::new(ReadFileTool::new(
+            path.clone(),
+            agent_id.clone(),
+            app.clone(),
+            state.pending_confirmations.clone(),
+            permission_manager.clone()
+        )),
         Arc::new(WriteFileTool::new(
             path.clone(),
             agent_id.clone(),
@@ -527,7 +638,14 @@ pub async fn add_agent_to_orchestrator(
         )),
         Arc::new(GitTool::new(path.clone())),
         Arc::new(SearchTool::new(path.clone())),
-        Arc::new(LspTool::new(path.clone(), permission_manager.clone(), config.lsp.clone())),
+        Arc::new(LspTool::new(
+            path.clone(),
+            permission_manager.clone(),
+            config.lsp.clone(),
+            agent_id.clone(),
+            app.clone(),
+            state.pending_confirmations.clone()
+        )),
         Arc::new(EditFileTool::new(
             path.clone(),
             agent_id.clone(),
@@ -543,7 +661,13 @@ pub async fn add_agent_to_orchestrator(
         Arc::new(QuestionTool::new(app.clone())),
         Arc::new(TodoWriteTool::new(path.clone())),
         Arc::new(TodoReadTool::new(path.clone())),
-        Arc::new(SkillTool::new(path.clone(), permission_manager.clone())),
+        Arc::new(SkillTool::new(
+            path.clone(),
+            agent_id.clone(),
+            app.clone(),
+            state.pending_confirmations.clone(),
+            permission_manager.clone()
+        )),
     ];
 
     // Load MCP tools from configuration
@@ -1122,13 +1246,41 @@ pub async fn save_mcp_config(
     Ok(())
 }
 
-/// Save permission configuration to anvil.json
+fn local_config_path(workspace_path: &str) -> PathBuf {
+    PathBuf::from(workspace_path).join(".anvil").join("anvil.json")
+}
+
+fn sanitize_permissions(mut config: PermissionConfig) -> PermissionConfig {
+    let clean = |rules: &mut Vec<crate::config::PermissionRule>| {
+        rules.retain(|rule| !rule.pattern.trim().is_empty());
+    };
+
+    clean(&mut config.bash.rules);
+    clean(&mut config.edit.rules);
+    clean(&mut config.read.rules);
+    clean(&mut config.write.rules);
+    clean(&mut config.skill.rules);
+    clean(&mut config.list.rules);
+    clean(&mut config.glob.rules);
+    clean(&mut config.grep.rules);
+    clean(&mut config.webfetch.rules);
+    clean(&mut config.task.rules);
+    clean(&mut config.lsp.rules);
+    clean(&mut config.todoread.rules);
+    clean(&mut config.todowrite.rules);
+    clean(&mut config.doom_loop.rules);
+    config
+}
+
+/// Save permission configuration to global anvil.json
 #[tauri::command]
 pub async fn save_permission_config(
+    state: State<'_, AppState>,
     workspace_path: String,
     config: PermissionConfig,
 ) -> Result<(), String> {
-    let path = PathBuf::from(&workspace_path).join(".anvil").join("anvil.json");
+    let path = local_config_path(&workspace_path);
+    let config = sanitize_permissions(config);
     
     // Ensure directory exists
     if let Some(parent) = path.parent() {
@@ -1148,7 +1300,7 @@ pub async fn save_permission_config(
     
     // Update permission field
     if let Some(obj) = root_config.as_object_mut() {
-        obj.insert("permission".to_string(), serde_json::to_value(config).map_err(|e| e.to_string())?);
+        obj.insert("permission".to_string(), serde_json::to_value(&config).map_err(|e| e.to_string())?);
     } else {
         return Err("Invalid anvil.json format: root is not an object".to_string());
     }
@@ -1157,6 +1309,18 @@ pub async fn save_permission_config(
     let json = serde_json::to_string_pretty(&root_config).map_err(|e| e.to_string())?;
     std::fs::write(path, json).map_err(|e| e.to_string())?;
     
+    let mut agents = state.agents.lock().await;
+    for (_, agent_arc) in agents.iter_mut() {
+        let mut agent = agent_arc.lock().await;
+        if agent.session.workspace_path == PathBuf::from(&workspace_path) {
+            {
+                let mut perms = agent.permission_manager.lock().await;
+                *perms = config.clone();
+            }
+            agent.session.permissions.config = config.clone();
+        }
+    }
+
     Ok(())
 }
 
@@ -1214,20 +1378,15 @@ pub async fn delete_workflow(
     crate::workflows::delete_workflow(&path, &workflow_id).await
 }
 
-/// Load permission configuration from anvil.json
+/// Load permission configuration from global anvil.json
 #[tauri::command]
 pub async fn load_permission_config(
     workspace_path: String,
 ) -> Result<Option<PermissionConfig>, String> {
-    let path = PathBuf::from(&workspace_path).join(".anvil").join("anvil.json");
-    
-    if !path.exists() {
-        return Ok(None);
-    }
-    
-    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let config = serde_json::from_str::<Config>(&content)
-        .map_err(|e| e.to_string())?;
-    
-    Ok(Some(config.permission))
+    let path = PathBuf::from(&workspace_path);
+    let mut config_manager = crate::config::ConfigManager::new();
+    let _ = config_manager.load(Some(&path));
+    let config = config_manager.config();
+
+    Ok(Some(config.permission.clone()))
 }

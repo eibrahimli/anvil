@@ -10,6 +10,7 @@ import { useUIStore } from "./stores/ui";
 import { useStore } from "./store";
 import { useConfirmationStore } from "./stores/confirmation";
 import { useSettingsStore } from "./stores/settings";
+import { useProviderStore } from "./stores/provider";
 import { useAgentEvents } from "./hooks/useAgentEvents";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -18,19 +19,30 @@ import clsx from "clsx";
 import "./App.css";
 
 function App() {
-  const { isTerminalOpen, isEditorOpen, terminalHeight, setTerminalHeight } = useUIStore();
-  const { setWorkspacePath } = useStore();
+  const { isTerminalOpen, isEditorOpen, terminalHeight, setTerminalHeight, editorWidth, setEditorWidth } = useUIStore();
+  const { setWorkspacePath, setMessages, setSessionId } = useStore();
+  const { apiKeys } = useProviderStore();
   const { setPendingRequest } = useConfirmationStore();
   const { setDiffMode: _setDiffMode } = useSettingsStore();
   const terminalDragRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const terminalRafRef = useRef<number | null>(null);
   const terminalPendingHeightRef = useRef<number | null>(null);
   const [isResizingTerminal, setIsResizingTerminal] = useState(false);
+  const editorDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const editorRafRef = useRef<number | null>(null);
+  const editorPendingWidthRef = useRef<number | null>(null);
+  const [isResizingEditor, setIsResizingEditor] = useState(false);
 
   const clampTerminalHeight = useCallback((height: number) => {
     const minHeight = 160;
     const maxHeight = Math.max(220, Math.floor(window.innerHeight * 0.45));
     return Math.min(maxHeight, Math.max(minHeight, height));
+  }, []);
+
+  const clampEditorWidth = useCallback((width: number) => {
+    const minWidth = 320;
+    const maxWidth = Math.max(420, Math.floor(window.innerWidth * 0.55));
+    return Math.min(maxWidth, Math.max(minWidth, width));
   }, []);
 
   const handlePointerMove = useCallback((event: PointerEvent) => {
@@ -59,6 +71,32 @@ function App() {
     }
   }, [handlePointerMove]);
 
+  const handleEditorPointerMove = useCallback((event: PointerEvent) => {
+    if (!editorDragRef.current) return;
+    const delta = editorDragRef.current.startX - event.clientX;
+    const nextWidth = clampEditorWidth(editorDragRef.current.startWidth + delta);
+    editorPendingWidthRef.current = nextWidth;
+    if (editorRafRef.current === null) {
+      editorRafRef.current = window.requestAnimationFrame(() => {
+        if (editorPendingWidthRef.current !== null) {
+          setEditorWidth(editorPendingWidthRef.current);
+        }
+        editorRafRef.current = null;
+      });
+    }
+  }, [clampEditorWidth, setEditorWidth]);
+
+  const handleEditorPointerUp = useCallback(() => {
+    editorDragRef.current = null;
+    setIsResizingEditor(false);
+    window.removeEventListener("pointermove", handleEditorPointerMove);
+    window.removeEventListener("pointerup", handleEditorPointerUp);
+    if (editorRafRef.current !== null) {
+      window.cancelAnimationFrame(editorRafRef.current);
+      editorRafRef.current = null;
+    }
+  }, [handleEditorPointerMove]);
+
   const handlePointerDown = useCallback((event: React.PointerEvent) => {
     if (!isTerminalOpen) return;
     event.preventDefault();
@@ -68,18 +106,32 @@ function App() {
     window.addEventListener("pointerup", handlePointerUp);
   }, [handlePointerMove, handlePointerUp, isTerminalOpen, terminalHeight]);
 
+  const handleEditorPointerDown = useCallback((event: React.PointerEvent) => {
+    if (!isEditorOpen) return;
+    event.preventDefault();
+    editorDragRef.current = { startX: event.clientX, startWidth: editorWidth };
+    setIsResizingEditor(true);
+    window.addEventListener("pointermove", handleEditorPointerMove);
+    window.addEventListener("pointerup", handleEditorPointerUp);
+  }, [handleEditorPointerMove, handleEditorPointerUp, editorWidth, isEditorOpen]);
+
   useEffect(() => {
     const onResize = () => {
       setTerminalHeight(clampTerminalHeight(terminalHeight));
+      setEditorWidth(clampEditorWidth(editorWidth));
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [clampTerminalHeight, setTerminalHeight, terminalHeight]);
+  }, [clampEditorWidth, clampTerminalHeight, editorWidth, setEditorWidth, setTerminalHeight, terminalHeight]);
 
   useEffect(() => () => handlePointerUp(), [handlePointerUp]);
+  useEffect(() => () => handleEditorPointerUp(), [handleEditorPointerUp]);
   useEffect(() => () => {
     if (terminalRafRef.current !== null) {
       window.cancelAnimationFrame(terminalRafRef.current);
+    }
+    if (editorRafRef.current !== null) {
+      window.cancelAnimationFrame(editorRafRef.current);
     }
   }, []);
 
@@ -91,6 +143,20 @@ function App() {
       const state = useStore.getState();
       const { sessionId, workspacePath } = state;
 
+      const providerForModel = (modelId: string) => {
+        if (modelId.startsWith("gemini")) return "gemini";
+        if (modelId.startsWith("claude")) return "anthropic";
+        if (
+          modelId.startsWith("llama") ||
+          modelId.startsWith("mistral") ||
+          modelId.startsWith("codellama") ||
+          modelId.startsWith("deepseek")
+        ) {
+          return "ollama";
+        }
+        return "openai";
+      };
+
       if (sessionId && workspacePath) {
         // Try to restore the session
         try {
@@ -98,14 +164,30 @@ function App() {
           const session = await invoke<any>("load_session", { sessionId });
           if (session) {
             console.log(`Restored session ${sessionId} for workspace ${workspacePath}`);
-            // Session exists in SQLite but we need to recreate the backend agent
-            // The Chat component will handle this when user sends first message
+            if (Array.isArray(session.messages)) {
+              setMessages(session.messages);
+            }
+
+            const modelId = typeof session.model === "string"
+              ? session.model
+              : (Array.isArray(session.model) ? session.model[0] : undefined);
+            if (modelId) {
+              const provider = providerForModel(modelId);
+              const apiKey = provider === "ollama" ? "" : (apiKeys[provider] || "");
+              if (provider === "ollama" || apiKey) {
+                await invoke<string>("replay_session", {
+                  sessionId,
+                  modelId,
+                  apiKey
+                });
+              }
+            }
             return;
           }
         } catch (e) {
           console.log("Previous session not found in database, clearing session ID");
           // Clear the invalid session ID
-          state.setSessionId(null);
+          setSessionId(null);
         }
       }
 
@@ -121,7 +203,7 @@ function App() {
     };
 
     restoreSession();
-  }, [setWorkspacePath]);
+  }, [apiKeys, setMessages, setSessionId, setWorkspacePath]);
 
   useEffect(() => {
     // Listen for confirmation requests (for tools like write_file, bash)
@@ -167,7 +249,18 @@ function App() {
 
         {/* Secondary Focal Point: The Editor (On the right, toggleable) */}
         {isEditorOpen && (
-          <div className="w-[550px] max-w-[45vw] min-w-[320px] flex-shrink-0 border-l border-[var(--border)] bg-[var(--bg-surface)] shadow-2xl z-20 flex flex-col">
+          <div
+            className={clsx(
+              "relative flex-shrink-0 border-l border-[var(--border)] bg-[var(--bg-surface)] shadow-2xl z-20 flex flex-col transition-all duration-200",
+              isResizingEditor && "transition-none"
+            )}
+            style={{ width: editorWidth }}
+          >
+            <div
+              className="absolute left-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-[var(--bg-elevated)]/60"
+              onPointerDown={handleEditorPointerDown}
+              title="Drag to resize editor"
+            />
             <div className="h-10 border-b border-[var(--border)] bg-[var(--bg-base)]/50 flex items-center px-4 justify-between shrink-0">
               <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Observation Window</span>
             </div>

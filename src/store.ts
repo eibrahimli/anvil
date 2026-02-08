@@ -18,6 +18,7 @@ interface AppState {
     setApiKey: (key: string) => void;
     setProvider: (provider: string) => void;
     addMessage: (msg: Message) => void;
+    appendToolCallToLastAssistant: (call: { id: string; name: string; arguments: string }) => void;
     appendTokenToLastMessage: (token: string) => void;
     updateLastMessageContent: (content: string) => void;
     setActiveFile: (path: string | null) => void;
@@ -47,6 +48,29 @@ export const useStore = create<AppState>()(
             setApiKey: (key) => set({ apiKey: key }),
             setProvider: (provider) => set({ provider }),
             addMessage: (msg) => set((state) => ({ messages: [...state.messages, msg] })),
+            appendToolCallToLastAssistant: (call) => set((state) => {
+                const msgs = [...state.messages];
+                let targetIndex = -1;
+                for (let i = msgs.length - 1; i >= 0; i -= 1) {
+                    if (msgs[i].role === "Assistant") {
+                        targetIndex = i;
+                        break;
+                    }
+                }
+                if (targetIndex === -1) {
+                    msgs.push({ role: "Assistant", content: "", tool_calls: [call] });
+                } else {
+                    const target = { ...msgs[targetIndex] };
+                    const existingCalls = Array.isArray(target.tool_calls) ? [...target.tool_calls] : [];
+                    const hasCall = existingCalls.some((existing) => existing.id === call.id);
+                    if (!hasCall) {
+                        existingCalls.push(call);
+                        target.tool_calls = existingCalls;
+                        msgs[targetIndex] = target;
+                    }
+                }
+                return { messages: msgs };
+            }),
             setMessages: (messages) => set({ messages }),
             appendTokenToLastMessage: (token) => set((state) => {
                 const msgs = [...state.messages];

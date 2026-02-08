@@ -34,6 +34,10 @@ pub fn start_config_watcher(
         }).unwrap();
 
         let watch_target = workspace_path.join(".anvil");
+        if let Err(e) = std::fs::create_dir_all(&watch_target) {
+            eprintln!("Failed to create config directory {:?}: {}", watch_target, e);
+            return;
+        }
         
         if let Err(e) = watcher.watch(&watch_target, RecursiveMode::NonRecursive) {
             eprintln!("Failed to watch config directory {:?}: {}", watch_target, e);

@@ -28,11 +28,19 @@ impl Storage {
                 workspace_path TEXT NOT NULL,
                 model TEXT NOT NULL,
                 mode TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                name TEXT
             )",
             [],
         )
         .map_err(|e| e.to_string())?;
+
+        if let Err(e) = db.execute("ALTER TABLE sessions ADD COLUMN name TEXT", []) {
+            let message = e.to_string();
+            if !message.contains("duplicate column name") {
+                return Err(message);
+            }
+        }
 
         db.execute(
             "CREATE TABLE IF NOT EXISTS messages (
@@ -69,8 +77,14 @@ impl Storage {
         let tx = self.db.unchecked_transaction().map_err(|e| e.to_string())?;
 
         tx.execute(
-            "INSERT OR REPLACE INTO sessions (id, workspace_path, model, mode, created_at)
-             VALUES (?1, ?2, ?3, ?4, datetime('now'))",
+            "INSERT INTO sessions (id, workspace_path, model, mode, created_at, name)
+             VALUES (?1, ?2, ?3, ?4, datetime('now'), (SELECT name FROM sessions WHERE id = ?1))
+             ON CONFLICT(id) DO UPDATE SET
+                workspace_path = excluded.workspace_path,
+                model = excluded.model,
+                mode = excluded.mode,
+                created_at = excluded.created_at,
+                name = COALESCE(sessions.name, excluded.name)",
             params![
                 session.id.to_string(),
                 session.workspace_path.to_string_lossy(),
@@ -209,7 +223,7 @@ impl Storage {
 
     pub fn list_sessions(&self) -> Result<Vec<SessionMetadata>, String> {
         let mut stmt = self.db.prepare(
-            "SELECT s.id, s.workspace_path, s.model, s.mode, s.created_at, COUNT(m.id) as message_count
+            "SELECT s.id, s.workspace_path, s.model, s.mode, s.created_at, s.name, COUNT(m.id) as message_count
              FROM sessions s
              LEFT JOIN messages m ON s.id = m.session_id
              GROUP BY s.id
@@ -231,7 +245,8 @@ impl Storage {
                     model: row.get(2)?,
                     mode,
                     created_at: row.get(4)?,
-                    message_count: row.get(5)?,
+                    name: row.get(5)?,
+                    message_count: row.get(6)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -244,6 +259,19 @@ impl Storage {
     pub fn delete_session(&self, session_id: &str) -> Result<(), String> {
         self.db
             .execute("DELETE FROM sessions WHERE id = ?1", params![session_id])
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn rename_session(&self, session_id: &str, name: Option<String>) -> Result<(), String> {
+        let normalized = name
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        self.db
+            .execute(
+                "UPDATE sessions SET name = ?1 WHERE id = ?2",
+                params![normalized, session_id],
+            )
             .map(|_| ())
             .map_err(|e| e.to_string())
     }
@@ -274,5 +302,6 @@ pub struct SessionMetadata {
     pub model: String,
     pub mode: String,
     pub created_at: String,
+    pub name: Option<String>,
     pub message_count: i64,
 }

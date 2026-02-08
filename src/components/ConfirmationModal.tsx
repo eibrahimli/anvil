@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { DiffEditor } from "@monaco-editor/react";
-import { Check, X, FileDiff, Terminal as TermIcon, ShieldCheck, Zap } from "lucide-react";
+import { Check, X, FileDiff, Terminal as TermIcon, ShieldCheck, Zap, AlertTriangle } from "lucide-react";
 import { useConfirmationStore } from "../stores/confirmation";
 import { useSettingsStore } from "../stores/settings";
 
@@ -18,6 +18,37 @@ export function ConfirmationModal() {
     if (!pendingRequest) return null;
 
     const isDiff = pendingRequest.type === 'diff';
+    const isShell = pendingRequest.type === 'shell';
+    const isDoomLoop = pendingRequest.type === 'doom_loop';
+    const isMode = pendingRequest.type === 'mode';
+    const headerTitle = isDiff
+        ? 'Review Changes'
+        : isShell
+            ? 'Confirm Shell Command'
+            : isDoomLoop
+                ? 'Repeated Tool Call'
+                : isMode
+                    ? 'Research Mode'
+                    : 'Permission Request';
+    const headerDetail = pendingRequest.file_path || pendingRequest.input || pendingRequest.command || pendingRequest.tool_name || 'Security Check';
+    const headerIcon = isDiff
+        ? <FileDiff size={20} />
+        : isShell
+            ? <TermIcon size={20} />
+            : isDoomLoop
+                ? <AlertTriangle size={20} />
+                : isMode
+                    ? <AlertTriangle size={20} />
+                    : <ShieldCheck size={20} />;
+    const headerTone = isDiff
+        ? 'bg-blue-500/10 text-blue-400'
+        : isShell
+            ? 'bg-yellow-500/10 text-yellow-400'
+            : isDoomLoop
+                ? 'bg-red-500/10 text-red-400'
+                : isMode
+                    ? 'bg-yellow-500/10 text-yellow-400'
+                    : 'bg-[var(--accent)]/15 text-[var(--accent)]';
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -26,13 +57,13 @@ export function ConfirmationModal() {
                 {/* Header */}
                 <div className="h-14 border-b border-[var(--border)] flex items-center justify-between px-6 bg-[var(--bg-base)]">
                     <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-lg ${isDiff ? 'bg-blue-500/10 text-blue-400' : 'bg-yellow-500/10 text-yellow-400'}`}>
-                            {isDiff ? <FileDiff size={20} /> : <TermIcon size={20} />}
+                        <div className={`p-2 rounded-lg ${headerTone}`}>
+                            {headerIcon}
                         </div>
                         <div>
-                            <h2 className="font-bold text-sm tracking-tight">{isDiff ? 'Review Changes' : 'Confirm Shell Command'}</h2>
+                            <h2 className="font-bold text-sm tracking-tight">{headerTitle}</h2>
                             <p className="text-[10px] text-zinc-500 font-mono truncate max-w-[400px]">
-                                {isDiff ? pendingRequest.file_path : 'Security Check'}
+                                {headerDetail}
                             </p>
                         </div>
                     </div>
@@ -79,7 +110,7 @@ export function ConfirmationModal() {
                                 </div>
                             </div>
                         </>
-                    ) : (
+                    ) : isShell ? (
                         <div className="p-6">
                             <p className="text-xs text-zinc-400 mb-3 uppercase font-bold tracking-widest">COMMAND TO EXECUTE:</p>
                             <div className="bg-[#09090b] border border-[var(--border)] rounded-lg p-4 font-mono text-sm text-green-400 break-all mb-6">
@@ -111,6 +142,48 @@ export function ConfirmationModal() {
                             <p className="mt-6 text-[10px] text-zinc-500 leading-relaxed italic border-l-2 border-[var(--border)] pl-4">
                                 Shell commands can be destructive. "Allow Once" executes this command once. "Allow Always" creates a session rule using the pattern above.
                             </p>
+                        </div>
+                    ) : (
+                        <div className="p-6">
+                            <p className="text-xs text-zinc-400 mb-3 uppercase font-bold tracking-widest">
+                                {isDoomLoop ? 'REPEATED TOOL CALL' : isMode ? 'RESEARCH MODE' : 'REQUEST'}
+                            </p>
+                            <div className="bg-[#09090b] border border-[var(--border)] rounded-lg p-4 font-mono text-sm text-zinc-200 break-all mb-6">
+                                {pendingRequest.tool_name ? (
+                                    <span className="text-zinc-500 mr-2">{pendingRequest.tool_name}</span>
+                                ) : null}
+                                {pendingRequest.input}
+                            </div>
+                            {isMode && (
+                                <div className="mb-4 rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-3 text-xs text-yellow-200/80 leading-relaxed">
+                                    Research mode is read-only by default. Allow once to run this tool, or allow always to create a session rule for matching calls.
+                                </div>
+                            )}
+                            <div className="space-y-4">
+                                <div className="p-4 rounded-lg bg-blue-500/5 border border-blue-500/10">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <ShieldCheck size={14} className="text-blue-400" />
+                                        <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Rule Suggestion</p>
+                                    </div>
+                                    <p className="text-xs text-zinc-400 mb-3 leading-relaxed">
+                                        Allow similar requests automatically by defining a pattern.
+                                    </p>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="text"
+                                            value={pattern}
+                                            onChange={(e) => setPattern(e.target.value)}
+                                            className="flex-1 bg-black/40 border border-[var(--border)] rounded px-3 py-1.5 text-xs font-mono text-zinc-300 focus:outline-none focus:border-blue-500/50"
+                                            placeholder="Pattern (e.g. src/**/*.ts)"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                            {isDoomLoop && (
+                                <p className="mt-6 text-[10px] text-zinc-500 leading-relaxed italic border-l-2 border-[var(--border)] pl-4">
+                                    This tool call has repeated multiple times with the same inputs. Allow once to continue, or allow always to suppress this warning for matching calls.
+                                </p>
+                            )}
                         </div>
                     )}
                 </div>

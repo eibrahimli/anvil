@@ -10,6 +10,8 @@ interface UIState {
     temperature: Temperature;
     isTerminalOpen: boolean;
     terminalHeight: number;
+    sidebarWidth: number;
+    editorWidth: number;
     isSettingsOpen: boolean;
     isEditorOpen: boolean;
     isOrchestratorOpen: boolean;
@@ -20,6 +22,8 @@ interface UIState {
     setTemperature: (temp: Temperature) => void;
     toggleTerminal: () => void;
     setTerminalHeight: (height: number) => void;
+    setSidebarWidth: (width: number) => void;
+    setEditorWidth: (width: number) => void;
     setSettingsOpen: (open: boolean) => void;
     setEditorOpen: (open: boolean) => void;
     setOrchestratorOpen: (open: boolean) => void;
@@ -32,6 +36,8 @@ export const useUIStore = create<UIState>((set) => ({
     temperature: 'low',
     isTerminalOpen: false,
     terminalHeight: 240,
+    sidebarWidth: 320,
+    editorWidth: 560,
     isSettingsOpen: false,
     isEditorOpen: false,
     isOrchestratorOpen: false,
@@ -42,6 +48,8 @@ export const useUIStore = create<UIState>((set) => ({
     setTemperature: (temp) => set({ temperature: temp }),
     toggleTerminal: () => set((state) => ({ isTerminalOpen: !state.isTerminalOpen })),
     setTerminalHeight: (height) => set({ terminalHeight: height }),
+    setSidebarWidth: (width) => set({ sidebarWidth: width }),
+    setEditorWidth: (width) => set({ editorWidth: width }),
     setSettingsOpen: (open) => set({ isSettingsOpen: open }),
     setEditorOpen: (open) => set({ isEditorOpen: open }),
     setOrchestratorOpen: (open) => set({ isOrchestratorOpen: open }),

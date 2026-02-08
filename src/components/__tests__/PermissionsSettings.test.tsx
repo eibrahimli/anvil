@@ -18,6 +18,15 @@ vi.mock('@tauri-apps/api/core', () => ({
         edit: { default: 'deny', rules: [] },
         bash: { default: 'ask', rules: [] },
         skill: { default: 'allow', rules: [] },
+        list: { default: 'allow', rules: [] },
+        glob: { default: 'allow', rules: [] },
+        grep: { default: 'allow', rules: [] },
+        webfetch: { default: 'allow', rules: [] },
+        task: { default: 'allow', rules: [] },
+        lsp: { default: 'allow', rules: [] },
+        todoread: { default: 'allow', rules: [] },
+        todowrite: { default: 'allow', rules: [] },
+        doom_loop: { default: 'ask', rules: [] },
       });
     }
     if (cmd === 'save_permission_config') {
@@ -45,6 +54,15 @@ describe('PermissionsSettings Component', () => {
             edit: { default: 'ask', rules: [] },
             bash: { default: 'ask', rules: [] },
             skill: { default: 'allow', rules: [] },
+            list: { default: 'allow', rules: [] },
+            glob: { default: 'allow', rules: [] },
+            grep: { default: 'allow', rules: [] },
+            webfetch: { default: 'allow', rules: [] },
+            task: { default: 'allow', rules: [] },
+            lsp: { default: 'allow', rules: [] },
+            todoread: { default: 'allow', rules: [] },
+            todowrite: { default: 'allow', rules: [] },
+            doom_loop: { default: 'ask', rules: [] },
         },
         setPermissions: vi.fn(),
     } as any)
@@ -74,6 +92,15 @@ describe('PermissionsSettings Component', () => {
           edit: { default: 'allow', rules: [] },
           bash: { default: 'deny', rules: [] },
           skill: { default: 'allow', rules: [] },
+          list: { default: 'allow', rules: [] },
+          glob: { default: 'allow', rules: [] },
+          grep: { default: 'allow', rules: [] },
+          webfetch: { default: 'allow', rules: [] },
+          task: { default: 'allow', rules: [] },
+          lsp: { default: 'allow', rules: [] },
+          todoread: { default: 'allow', rules: [] },
+          todowrite: { default: 'allow', rules: [] },
+          doom_loop: { default: 'ask', rules: [] },
         },
         setPermissions: vi.fn(),
       } as any)
@@ -92,7 +119,7 @@ describe('PermissionsSettings Component', () => {
           expect(screen.getByText('Read Files')).toBeInTheDocument()
       })
       
-      const tools = ['Read Files', 'Write Files', 'Edit Files', 'Terminal', 'Skills']
+      const tools = ['Read Files', 'Write Files', 'Edit Files', 'Terminal', 'List', 'Glob', 'Search', 'Web Fetch', 'Subagents', 'LSP', 'Todo Read', 'Todo Write', 'Doom Loop', 'Skills']
       
       tools.forEach(tool => {
         expect(screen.getByText(tool)).toBeInTheDocument()
@@ -107,6 +134,15 @@ describe('PermissionsSettings Component', () => {
           edit: { default: 'deny', rules: [] },
           bash: { default: 'deny', rules: [] },
           skill: { default: 'allow', rules: [] },
+          list: { default: 'allow', rules: [] },
+          glob: { default: 'allow', rules: [] },
+          grep: { default: 'allow', rules: [] },
+          webfetch: { default: 'allow', rules: [] },
+          task: { default: 'allow', rules: [] },
+          lsp: { default: 'allow', rules: [] },
+          todoread: { default: 'allow', rules: [] },
+          todowrite: { default: 'allow', rules: [] },
+          doom_loop: { default: 'ask', rules: [] },
         },
         setPermissions: vi.fn(),
       } as any)
@@ -149,6 +185,15 @@ describe('PermissionsSettings Component', () => {
           edit: { default: 'ask', rules: [] },
           bash: { default: 'ask', rules: [] },
           skill: { default: 'allow', rules: [] },
+          list: { default: 'allow', rules: [] },
+          glob: { default: 'allow', rules: [] },
+          grep: { default: 'allow', rules: [] },
+          webfetch: { default: 'allow', rules: [] },
+          task: { default: 'allow', rules: [] },
+          lsp: { default: 'allow', rules: [] },
+          todoread: { default: 'allow', rules: [] },
+          todowrite: { default: 'allow', rules: [] },
+          doom_loop: { default: 'ask', rules: [] },
         },
         setPermissions: setPermissionsMock,
       } as any)
@@ -200,6 +245,15 @@ describe('PermissionsSettings Component', () => {
             edit: { default: 'ask', rules: [] },
             bash: { default: 'ask', rules: [] },
             skill: { default: 'allow', rules: [] },
+            list: { default: 'allow', rules: [] },
+            glob: { default: 'allow', rules: [] },
+            grep: { default: 'allow', rules: [] },
+            webfetch: { default: 'allow', rules: [] },
+            task: { default: 'allow', rules: [] },
+            lsp: { default: 'allow', rules: [] },
+            todoread: { default: 'allow', rules: [] },
+            todowrite: { default: 'allow', rules: [] },
+            doom_loop: { default: 'ask', rules: [] },
         },
         setPermissions: setPermissionsMock
       } as any);

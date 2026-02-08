@@ -4,11 +4,13 @@ import { invoke } from '@tauri-apps/api/core';
 interface ConfirmationRequest {
     id: string;
     session_id: string;
-    type: 'diff' | 'shell';
+    type: 'diff' | 'shell' | 'permission' | 'doom_loop' | 'mode';
     file_path?: string;
     old_content?: string | null;
     new_content?: string;
     command?: string;
+    tool_name?: string;
+    input?: string;
     suggested_pattern?: string;
 }
 

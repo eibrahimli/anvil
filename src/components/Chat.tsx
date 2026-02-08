@@ -5,7 +5,7 @@ import { useStore } from "../store";
 import { useProviderStore } from "../stores/provider";
 import { useUIStore, AgentMode } from "../stores/ui";
 import { Message } from "../types";
-import { ChevronDown, Send, Sparkles, History as HistoryIcon, Terminal as TermIcon, Zap, Image as ImageIcon, List as ListIcon, Clock } from "lucide-react";
+import { ChevronDown, Send, Sparkles, History as HistoryIcon, Terminal as TermIcon, Zap, Image as ImageIcon, List as ListIcon, Clock, PanelRight } from "lucide-react";
 import { QuestionModal } from "./QuestionModal";
 import { TodoIndicator } from "./TodoIndicator";
 import { ActivityStream } from "./ActivityStream";
@@ -17,11 +17,13 @@ import { useAgentEvents } from "../hooks/useAgentEvents";
 export function Chat() {
     const { sessionId, messages, addMessage, workspacePath, setSessionId, appendTokenToLastMessage, updateLastMessageContent } = useStore();
     const { enabledModels, activeModelId, setActiveModel, activeProviderId, apiKeys } = useProviderStore();
-    const { activeMode, setActiveMode, temperature, setTemperature, isEditorOpen: _isEditorOpen, setSettingsOpen, isQuestionOpen } = useUIStore();
+    const { activeMode, setActiveMode, temperature, setTemperature, isEditorOpen, setEditorOpen, setSettingsOpen, isQuestionOpen } = useUIStore();
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
     const [activityView, setActivityView] = useState<'stream' | 'timeline'>("stream");
     const [activeDropdown, setActiveDropdown] = useState<'mode' | 'model' | null>(null);
+    const [gitSummary, setGitSummary] = useState<{ staged: number; unstaged: number; untracked: number; conflicted: number; branch?: string; files?: string[] } | null>(null);
+    const [showGitDetails, setShowGitDetails] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
     const modeDropdownRef = useRef<HTMLDivElement>(null);
     const modelDropdownRef = useRef<HTMLDivElement>(null);
@@ -49,6 +51,44 @@ export function Chat() {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
     }, [messages, loading]);
+
+    useEffect(() => {
+        let timer: number | null = null;
+
+        const refreshGit = async () => {
+            if (!workspacePath) {
+                setGitSummary(null);
+                return;
+            }
+            try {
+                const result = await invoke<any>("git_status_summary", { workspacePath });
+                const stagedList = Array.isArray(result?.staged) ? result.staged : [];
+                const unstagedList = Array.isArray(result?.unstaged) ? result.unstaged : [];
+                const untrackedList = Array.isArray(result?.untracked) ? result.untracked : [];
+                const conflictedList = Array.isArray(result?.conflicted) ? result.conflicted : [];
+                const staged = stagedList.length;
+                const unstaged = unstagedList.length;
+                const untracked = untrackedList.length;
+                const conflicted = conflictedList.length;
+                const branch = typeof result?.branch === "string" ? result.branch : undefined;
+                const files = [...new Set([...stagedList, ...unstagedList, ...untrackedList, ...conflictedList])];
+                setGitSummary({ staged, unstaged, untracked, conflicted, branch, files });
+            } catch (error) {
+                setGitSummary(null);
+            }
+        };
+
+        refreshGit();
+        if (workspacePath) {
+            timer = window.setInterval(refreshGit, 15000);
+        }
+
+        return () => {
+            if (timer) {
+                window.clearInterval(timer);
+            }
+        };
+    }, [workspacePath]);
 
     type StatusInfo = {
         status: AgentStatus;
@@ -91,12 +131,19 @@ export function Chat() {
             ];
             const hasCommandIntent = commandIntentPatterns.some((pattern) => pattern.test(recentUserText));
 
-            const toolPattern = /> Executing tool: `([^`]+)`/g;
-            const toolNames: string[] = [];
-            let toolMatch: RegExpExecArray | null;
-            while ((toolMatch = toolPattern.exec(recentAssistantText)) !== null) {
-                toolNames.push(toolMatch[1]);
-            }
+            const toolCalls = messages
+                .filter((msg) => msg.role === "Assistant")
+                .flatMap((msg) => msg.tool_calls || []);
+
+            const toolResults = new Set(
+                messages
+                    .filter((msg) => msg.role === "Tool")
+                    .map((msg) => msg.tool_call_id)
+                    .filter((id): id is string => Boolean(id))
+            );
+
+            const pendingToolCalls = toolCalls.filter((call) => !toolResults.has(call.id));
+            const toolNames = pendingToolCalls.map((call) => call.name);
 
             const getToolStatus = (name: string): AgentStatus | null => {
                 const tool = name.toLowerCase();
@@ -317,7 +364,7 @@ export function Chat() {
     return (
         <div className="flex flex-col h-full bg-[var(--bg-base)] text-[var(--text-primary)] font-sans relative">
             {/* Header - Simple and clean */}
-            <div className="h-14 flex items-center px-6 justify-between border-b border-[var(--border)] bg-[var(--bg-base)]/50 backdrop-blur-md">
+            <div className="relative z-30 h-14 flex items-center px-6 justify-between border-b border-[var(--border)] bg-[var(--bg-base)]/50 backdrop-blur-md overflow-visible">
                 <div className="flex flex-col">
                     <span className="text-sm font-bold text-zinc-100 tracking-tight">Agent Console</span>
                     <span className="text-[10px] text-zinc-500 font-medium uppercase tracking-widest truncate max-w-[200px]">
@@ -326,6 +373,53 @@ export function Chat() {
                 </div>
 
                 <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => setEditorOpen(!isEditorOpen)}
+                        className={clsx(
+                            "p-1.5 rounded-md transition-colors",
+                            isEditorOpen ? "bg-[var(--accent)]/15 text-[var(--accent)]" : "hover:bg-[var(--bg-elevated)] text-gray-400"
+                        )}
+                        title={isEditorOpen ? "Hide observation window" : "Show observation window"}
+                    >
+                        <PanelRight size={16} />
+                    </button>
+                    {gitSummary && (() => {
+                        const total = gitSummary.staged + gitSummary.unstaged + gitSummary.untracked + gitSummary.conflicted;
+                        return (
+                            <div className="relative flex items-center gap-2 text-[10px] text-zinc-400">
+                                {gitSummary.branch && (
+                                    <span className="px-2 py-1 rounded-full bg-[var(--bg-elevated)] text-zinc-500">
+                                        {gitSummary.branch}
+                                    </span>
+                                )}
+                                <button
+                                    onClick={() => setShowGitDetails((prev) => !prev)}
+                                    className={clsx(
+                                        "px-2 py-1 rounded-full",
+                                        total === 0 ? "bg-emerald-500/10 text-emerald-400" : "bg-[var(--bg-elevated)] text-zinc-300"
+                                    )}
+                                >
+                                    {total === 0 ? "Clean" : `Changes ${total}`}
+                                </button>
+                                {total > 0 && showGitDetails && gitSummary.files && (
+                                    <div className="absolute right-0 top-full mt-2 w-64 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] shadow-2xl overflow-hidden z-50">
+                                        <div className="px-3 py-2 text-[10px] uppercase tracking-widest text-zinc-500 border-b border-[var(--border)]">Changed Files</div>
+                                        <div className="max-h-48 overflow-y-auto">
+                                            {gitSummary.files.length === 0 ? (
+                                                <div className="px-3 py-2 text-xs text-zinc-500">No changes</div>
+                                            ) : (
+                                                gitSummary.files.map((file) => (
+                                                    <div key={file} className="px-3 py-2 text-xs text-zinc-300 border-b border-[var(--border)]/60 last:border-0 truncate">
+                                                        {file}
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()}
                     <TodoIndicator />
                     <button
                         className="p-1.5 hover:bg-[var(--bg-elevated)] rounded-md text-gray-400 transition-colors"
@@ -347,41 +441,44 @@ export function Chat() {
                 detail={statusInfo.detail}
             />
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-4 scroll-smooth">
-                {messages.length === 0 && (
-                    <div className="h-full flex flex-col items-center justify-center text-center opacity-30 px-12">
-                        <Sparkles size={48} className="mb-4 text-[var(--accent)]" />
-                        <h3 className="text-lg font-medium mb-2">How can I help you build today?</h3>
-                        <p className="text-sm">I can edit files, run terminal commands, and reason about your code architecture.</p>
-                    </div>
-                )}
+                <div className="mx-auto w-full max-w-[1100px] min-h-full flex flex-col">
+                    {messages.length === 0 && (
+                        <div className="flex-1 flex flex-col items-center justify-center text-center opacity-30 px-12">
+                            <Sparkles size={48} className="mb-4 text-[var(--accent)]" />
+                            <h3 className="text-lg font-medium mb-2">How can I help you build today?</h3>
+                            <p className="text-sm">I can edit files, run terminal commands, and reason about your code architecture.</p>
+                        </div>
+                    )}
 
-                <ActivityStream 
-                    messages={messages} 
-                    isLoading={loading}
-                    view={activityView}
-                />
+                    <ActivityStream 
+                        messages={messages} 
+                        isLoading={loading}
+                        view={activityView}
+                    />
+                </div>
             </div>
-
+            
             {/* Input Area */}
             <div className="p-6 bg-gradient-to-t from-[var(--bg-base)] via-[var(--bg-base)] to-transparent sticky bottom-0">
-                <div className="relative group bg-[var(--bg-surface)] rounded-2xl border border-[var(--border)] focus-within:border-[var(--accent)] transition-all shadow-2xl overflow-visible">
-                    <textarea
-                        className="w-full bg-transparent p-4 pr-16 text-[var(--text-primary)] placeholder-zinc-600 focus:outline-none resize-none font-sans text-sm min-h-[60px]"
-                        rows={2}
-                        value={input}
-                        onChange={e => setInput(e.target.value)}
-                        onKeyDown={e => {
-                            if (e.key === "Enter" && !e.shiftKey) {
-                                e.preventDefault();
-                                handleSend();
-                            }
-                        }}
-                        placeholder="Explain your changes or ask a question..."
-                    />
-                    
-                    <div className="flex items-center justify-between px-2 pt-2 pb-1 border-t border-zinc-800/50 mt-2">
-                        {/* Left Side Buttons */}
-                        <div className="flex items-center gap-1.5">
+                <div className="mx-auto w-full max-w-[1100px]">
+                    <div className="relative group bg-[var(--bg-surface)] rounded-2xl border border-[var(--border)] focus-within:border-[var(--accent)] transition-all shadow-2xl overflow-visible">
+                        <textarea
+                            className="w-full bg-transparent p-4 pr-16 text-[var(--text-primary)] placeholder-zinc-600 focus:outline-none resize-none font-sans text-sm min-h-[60px]"
+                            rows={2}
+                            value={input}
+                            onChange={e => setInput(e.target.value)}
+                            onKeyDown={e => {
+                                if (e.key === "Enter" && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleSend();
+                                }
+                            }}
+                            placeholder="Explain your changes or ask a question..."
+                        />
+                        
+                        <div className="flex items-center justify-between px-2 pt-2 pb-1 border-t border-zinc-800/50 mt-2">
+                            {/* Left Side Buttons */}
+                            <div className="flex items-center gap-1.5">
                             <div className="relative" ref={modeDropdownRef}>
                                 <button 
                                     onClick={() => setActiveDropdown(activeDropdown === 'mode' ? null : 'mode')}
@@ -467,23 +564,24 @@ export function Chat() {
                         </div>
 
                         {/* Right Side Buttons */}
-                        <div className="flex items-center gap-1">
-                            <button className="p-2 rounded-lg hover:bg-zinc-800 text-zinc-500 transition-colors" title="Add Image">
-                                <ImageIcon size={18} />
-                            </button>
-                            <button 
-                                onClick={handleSend}
-                                disabled={!input.trim() || loading}
-                                className="ml-1 p-2 bg-[var(--accent)] hover:bg-[var(--accent)]/80 disabled:bg-zinc-900 disabled:text-zinc-700 text-white rounded-xl transition-all active:scale-95 group/send"
-                            >
-                                <Send size={20} className="group-hover/send:translate-x-0.5 group-hover/send:-translate-y-0.5 transition-transform" strokeWidth={2.5} />
-                            </button>
+                            <div className="flex items-center gap-1">
+                                <button className="p-2 rounded-lg hover:bg-zinc-800 text-zinc-500 transition-colors" title="Add Image">
+                                    <ImageIcon size={18} />
+                                </button>
+                                <button 
+                                    onClick={handleSend}
+                                    disabled={!input.trim() || loading}
+                                    className="ml-1 p-2 bg-[var(--accent)] hover:bg-[var(--accent)]/80 disabled:bg-zinc-900 disabled:text-zinc-700 text-white rounded-xl transition-all active:scale-95 group/send"
+                                >
+                                    <Send size={20} className="group-hover/send:translate-x-0.5 group-hover/send:-translate-y-0.5 transition-transform" strokeWidth={2.5} />
+                                </button>
+                            </div>
                         </div>
-                    </div>
-                    <div className="mt-3 flex items-center justify-center gap-4 text-[10px] text-zinc-600 font-bold uppercase tracking-widest">
-                        <span>Shift + Enter for new line</span>
-                        <span className="w-1 h-1 bg-zinc-800 rounded-full" />
-                        <span>Control + P for commands</span>
+                        <div className="mt-3 flex items-center justify-center gap-4 text-[10px] text-zinc-600 font-bold uppercase tracking-widest">
+                            <span>Shift + Enter for new line</span>
+                            <span className="w-1 h-1 bg-zinc-800 rounded-full" />
+                            <span>Control + P for commands</span>
+                        </div>
                     </div>
                 </div>
             </div>

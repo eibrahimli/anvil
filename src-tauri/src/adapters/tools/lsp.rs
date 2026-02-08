@@ -1,18 +1,121 @@
 use crate::domain::ports::Tool;
 use crate::domain::models::ToolResult;
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::Mutex;
+use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::time::{timeout, Duration};
+use tokio::sync::oneshot;
 use url::Url;
+use uuid::Uuid;
+
+fn expand_tilde(input: &str) -> String {
+    if input.starts_with("~") {
+        if let Some(home) = dirs::home_dir() {
+            return input.replacen("~", &home.to_string_lossy(), 1);
+        }
+    }
+    input.to_string()
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            _ => normalized.push(component),
+        }
+    }
+    normalized
+}
+
+fn canonicalize_or_normalize(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| normalize_path(path))
+}
+
+fn path_variants(input: &str, workspace_root: &Path) -> Vec<String> {
+    if input.trim().is_empty() {
+        return Vec::new();
+    }
+
+    let expanded = expand_tilde(input);
+    let path = if Path::new(&expanded).is_absolute() {
+        PathBuf::from(&expanded)
+    } else {
+        workspace_root.join(&expanded)
+    };
+
+    let normalized = normalize_path(&path);
+    let mut variants = Vec::new();
+    let absolute = normalized.to_string_lossy().to_string();
+    if !absolute.is_empty() {
+        variants.push(absolute.clone());
+    }
+
+    if normalized.starts_with(workspace_root) {
+        if let Ok(relative) = normalized.strip_prefix(workspace_root) {
+            let relative = relative.to_string_lossy().to_string();
+            if !relative.is_empty() {
+                variants.push(relative);
+            }
+        }
+    }
+
+    variants
+}
+
+fn add_allow_rule_with_variants(
+    rules: &mut Vec<crate::config::manager::PermissionRule>,
+    pattern: String,
+    suggested_pattern: &str,
+    workspace_root: &Path,
+) {
+    if pattern.trim().is_empty() {
+        return;
+    }
+
+    let mut push_rule = |value: String| {
+        if value.trim().is_empty() {
+            return;
+        }
+        let exists = rules.iter().any(|rule| {
+            rule.pattern == value && rule.action == crate::config::Action::Allow
+        });
+        if !exists {
+            rules.push(crate::config::manager::PermissionRule {
+                pattern: value,
+                action: crate::config::Action::Allow,
+            });
+        }
+    };
+
+    push_rule(pattern.clone());
+
+    if pattern == suggested_pattern {
+        for variant in path_variants(suggested_pattern, workspace_root) {
+            if variant != pattern {
+                push_rule(variant);
+            }
+        }
+    }
+}
 
 pub struct LspTool {
     pub workspace_root: PathBuf,
     pub permission_manager: std::sync::Arc<tokio::sync::Mutex<crate::config::PermissionConfig>>,
     pub lsp_config: Option<crate::config::LspConfig>,
+    pub session_id: String,
+    pub app: AppHandle,
+    pub pending_confirmations: std::sync::Arc<Mutex<HashMap<String, oneshot::Sender<crate::domain::models::ConfirmationResponse>>>>,
 }
 
 impl LspTool {
@@ -20,12 +123,54 @@ impl LspTool {
         workspace_root: PathBuf,
         permission_manager: std::sync::Arc<tokio::sync::Mutex<crate::config::PermissionConfig>>,
         lsp_config: Option<crate::config::LspConfig>,
+        session_id: String,
+        app: AppHandle,
+        pending_confirmations: std::sync::Arc<Mutex<HashMap<String, oneshot::Sender<crate::domain::models::ConfirmationResponse>>>>,
     ) -> Self {
-        Self { workspace_root, permission_manager, lsp_config }
+        Self { workspace_root, permission_manager, lsp_config, session_id, app, pending_confirmations }
+    }
+
+    async fn request_confirmation(
+        &self,
+        input: &str,
+        suggested_pattern: String,
+    ) -> Result<crate::domain::models::ConfirmationResponse, String> {
+        let request_id = Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+
+        {
+            let mut map = self.pending_confirmations.lock().unwrap();
+            map.insert(request_id.clone(), tx);
+        }
+
+        let event = PermissionConfirmationRequest {
+            id: request_id.clone(),
+            session_id: self.session_id.clone(),
+            type_: "permission".to_string(),
+            tool_name: "lsp".to_string(),
+            input: input.to_string(),
+            suggested_pattern,
+        };
+
+        self.app.emit("request-confirmation", &event)
+            .map_err(|e| format!("Failed to emit confirmation event: {}", e))?;
+
+        rx.await.map_err(|_| "Confirmation channel closed without response".to_string())
     }
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Serialize, Clone)]
+struct PermissionConfirmationRequest {
+    id: String,
+    session_id: String,
+    #[serde(rename = "type")]
+    type_: String,
+    tool_name: String,
+    input: String,
+    suggested_pattern: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct LspInput {
     path: String,
     request: String,
@@ -121,20 +266,54 @@ impl Tool for LspTool {
 
         let path = resolve_target_path(&self.workspace_root, &args.path)?;
 
-        let allowed_location = {
+        let location_action = {
             let config = self.permission_manager.lock().await;
-            config.check_path_access(&path, &self.workspace_root) == crate::config::Action::Allow
+            config.check_path_access(&path, &self.workspace_root)
         };
-        if !allowed_location {
+        if location_action == crate::config::Action::Deny {
             return Err("Access denied: Path is outside workspace and not allowed by config".to_string());
         }
+        if location_action == crate::config::Action::Ask {
+            let input = path.to_string_lossy().to_string();
+            let suggested_pattern = canonicalize_or_normalize(&path).to_string_lossy().to_string();
+            let response = self.request_confirmation(&input, suggested_pattern.clone()).await?;
+            if !response.allowed {
+                return Err("User denied external path access.".to_string());
+            }
+            if response.always {
+                let pattern = response.pattern.unwrap_or(suggested_pattern);
+                let mut config = self.permission_manager.lock().await;
+                let rules = config.external_directory.get_or_insert_with(HashMap::new);
+                rules.insert(pattern, crate::config::Action::Allow);
+            }
+        }
 
-        let allowed_file = {
+        let action = {
             let config = self.permission_manager.lock().await;
-            config.read.evaluate(&args.path) == crate::config::Action::Allow
+            config.read.evaluate(&args.path)
         };
-        if !allowed_file {
-            return Err("Access denied: Permission denied for this file type".to_string());
+        match action {
+            crate::config::Action::Deny => {
+                return Err("Access denied: Permission denied for this file type".to_string());
+            }
+            crate::config::Action::Ask => {
+                let suggested_pattern = args.path.clone();
+                let response = self.request_confirmation(&args.path, suggested_pattern.clone()).await?;
+                if !response.allowed {
+                    return Err("User denied file access.".to_string());
+                }
+                if response.always {
+                    let pattern = response.pattern.unwrap_or(suggested_pattern.clone());
+                    let mut config = self.permission_manager.lock().await;
+                    add_allow_rule_with_variants(
+                        &mut config.read.rules,
+                        pattern,
+                        &suggested_pattern,
+                        &self.workspace_root,
+                    );
+                }
+            }
+            crate::config::Action::Allow => {}
         }
 
         let file_content = tokio::fs::read_to_string(&path).await

@@ -2,19 +2,50 @@ use crate::domain::ports::Tool;
 use crate::domain::models::ToolResult;
 use crate::config::{SkillLoader, SkillDiscovery, PermissionConfig, Action};
 use async_trait::async_trait;
+use serde::{Serialize};
 use serde_json::{json, Value};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex as StdMutex};
+use tauri::{AppHandle, Emitter};
+use tokio::sync::oneshot;
 use tokio::sync::Mutex;
+use uuid::Uuid;
 
 pub struct SkillTool {
     workspace_root: PathBuf,
     permission_manager: Arc<Mutex<PermissionConfig>>,
+    session_id: String,
+    app: Option<AppHandle>,
+    pending_confirmations: Option<Arc<StdMutex<HashMap<String, oneshot::Sender<crate::domain::models::ConfirmationResponse>>>>>,
 }
 
 impl SkillTool {
-    pub fn new(workspace_root: PathBuf, permission_manager: Arc<Mutex<PermissionConfig>>) -> Self {
-        Self { workspace_root, permission_manager }
+    pub fn new(
+        workspace_root: PathBuf,
+        session_id: String,
+        app: AppHandle,
+        pending_confirmations: Arc<StdMutex<HashMap<String, oneshot::Sender<crate::domain::models::ConfirmationResponse>>>>,
+        permission_manager: Arc<Mutex<PermissionConfig>>,
+    ) -> Self {
+        Self {
+            workspace_root,
+            permission_manager,
+            session_id,
+            app: Some(app),
+            pending_confirmations: Some(pending_confirmations),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_for_test(workspace_root: PathBuf, permission_manager: Arc<Mutex<PermissionConfig>>) -> Self {
+        Self {
+            workspace_root,
+            permission_manager,
+            session_id: String::new(),
+            app: None,
+            pending_confirmations: None,
+        }
     }
     
     /// Check if a skill is allowed to be used
@@ -22,6 +53,51 @@ impl SkillTool {
         let config = self.permission_manager.lock().await;
         config.skill.evaluate(skill_name)
     }
+
+    async fn request_confirmation(
+        &self,
+        skill_name: &str,
+    ) -> Result<crate::domain::models::ConfirmationResponse, String> {
+        let request_id = Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+
+        let Some(pending) = self.pending_confirmations.as_ref() else {
+            return Err("Confirmation unavailable for skill invocation.".to_string());
+        };
+        let Some(app) = self.app.as_ref() else {
+            return Err("Confirmation unavailable for skill invocation.".to_string());
+        };
+
+        {
+            let mut map = pending.lock().unwrap();
+            map.insert(request_id.clone(), tx);
+        }
+
+        let event = PermissionConfirmationRequest {
+            id: request_id.clone(),
+            session_id: self.session_id.clone(),
+            type_: "permission".to_string(),
+            tool_name: "skill".to_string(),
+            input: skill_name.to_string(),
+            suggested_pattern: skill_name.to_string(),
+        };
+
+        app.emit("request-confirmation", &event)
+            .map_err(|e| format!("Failed to emit confirmation event: {}", e))?;
+
+        rx.await.map_err(|_| "Confirmation channel closed without response".to_string())
+    }
+}
+
+#[derive(Serialize, Clone)]
+struct PermissionConfirmationRequest {
+    id: String,
+    session_id: String,
+    #[serde(rename = "type")]
+    type_: String,
+    tool_name: String,
+    input: String,
+    suggested_pattern: String,
 }
 
 #[async_trait]
@@ -122,9 +198,18 @@ impl SkillTool {
                 return Err(format!("Permission denied: Skill '{}' is not allowed", skill_name));
             }
             Action::Ask => {
-                // For now, treat Ask as Deny in non-interactive context
-                // TODO: Implement interactive confirmation for skills
-                return Err(format!("Skill '{}' requires confirmation. Please confirm you want to use this skill.", skill_name));
+                let response = self.request_confirmation(skill_name).await?;
+                if !response.allowed {
+                    return Err(format!("Skill '{}' denied by user.", skill_name));
+                }
+                if response.always {
+                    let pattern = response.pattern.unwrap_or(skill_name.to_string());
+                    let mut config = self.permission_manager.lock().await;
+                    config.skill.rules.push(crate::config::PermissionRule {
+                        pattern,
+                        action: Action::Allow,
+                    });
+                }
             }
             Action::Allow => {}
         }
@@ -196,7 +281,7 @@ Test things.
         fs::create_dir(workspace.join(".git")).unwrap();
 
         let permission_manager = Arc::new(Mutex::new(test_permission_config()));
-        let tool = SkillTool::new(workspace, permission_manager);
+        let tool = SkillTool::new_for_test(workspace, permission_manager);
         let input = json!({"action": "list"});
         let result = tool.execute(input).await.unwrap();
 
@@ -227,7 +312,7 @@ Do something useful.
         fs::create_dir(workspace.join(".git")).unwrap();
 
         let permission_manager = Arc::new(Mutex::new(test_permission_config()));
-        let tool = SkillTool::new(workspace, permission_manager);
+        let tool = SkillTool::new_for_test(workspace, permission_manager);
         let input = json!({
             "action": "invoke",
             "skill_name": "my-skill",
@@ -248,7 +333,7 @@ Do something useful.
         let workspace = temp_dir.path().to_path_buf();
 
         let permission_manager = Arc::new(Mutex::new(test_permission_config()));
-        let tool = SkillTool::new(workspace, permission_manager);
+        let tool = SkillTool::new_for_test(workspace, permission_manager);
         let input = json!({
             "action": "invoke",
             "skill_name": "nonexistent"
@@ -287,7 +372,7 @@ This is secret.
         });
         
         let permission_manager = Arc::new(Mutex::new(config));
-        let tool = SkillTool::new(workspace, permission_manager);
+        let tool = SkillTool::new_for_test(workspace, permission_manager);
         
         // List should not show denied skill
         let list_result = tool.execute(json!({"action": "list"})).await.unwrap();

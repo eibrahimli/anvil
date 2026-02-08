@@ -45,8 +45,7 @@ describe('ActionCard', () => {
       />
     )
 
-    // Check pending state (Loader2 icon)
-    expect(document.querySelector('[data-testid="loader"]')).toBeDefined()
+    expect(screen.getByText('Queued')).toBeInTheDocument()
 
     rerender(
       <ActionCard
@@ -56,8 +55,7 @@ describe('ActionCard', () => {
       />
     )
 
-    // Success should show CheckCircle
-    expect(document.querySelector('[data-testid="check-circle"]')).toBeDefined()
+    expect(screen.getByText('Done')).toBeInTheDocument()
   })
 })
 
@@ -67,7 +65,7 @@ describe('ThinkingBlock', () => {
       <ThinkingBlock content="Analyzing project structure..." isThinking={true} />
     )
 
-    expect(screen.getByText('Agent is thinking...')).toBeInTheDocument()
+    expect(screen.getByText('Thinking')).toBeInTheDocument()
   })
 
   it('shows collapsed content preview', () => {
@@ -88,12 +86,10 @@ describe('MessageCard', () => {
       <MessageCard
         role="user"
         content="Hello, can you help me?"
-        timestamp="10:30 AM"
       />
     )
 
     expect(screen.getByText('Hello, can you help me?')).toBeInTheDocument()
-    expect(screen.getByText('10:30 AM')).toBeInTheDocument()
   })
 
   it('renders assistant message correctly', () => {
@@ -105,6 +101,7 @@ describe('MessageCard', () => {
     )
 
     expect(screen.getByText("I'd be happy to help!")).toBeInTheDocument()
+    expect(screen.getByText('Response')).toBeInTheDocument()
   })
 })
 

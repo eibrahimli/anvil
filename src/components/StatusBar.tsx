@@ -23,7 +23,7 @@ export function StatusBar({ status, message, detail }: StatusBarProps) {
     const meta = statusMeta[status];
 
     return (
-        <div className="relative overflow-hidden border-b border-[var(--border)] bg-[var(--bg-base)]/75 backdrop-blur-md">
+        <div className="relative z-10 overflow-hidden border-b border-[var(--border)] bg-[var(--bg-base)]/75 backdrop-blur-md">
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(139,92,246,0.08),_transparent_55%)]" />
             <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,_transparent,_rgba(148,163,184,0.35),_transparent)]" />
 

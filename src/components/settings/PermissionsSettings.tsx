@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSettingsStore, PermissionAction, PermissionRule, PermissionConfig, ToolPermission, PermissionValue } from '../../stores/settings';
 import clsx from 'clsx';
-import { Shield, Terminal, FileEdit, FileText, File, Plus, Trash2, ChevronDown, ChevronRight, Save, RotateCw, Brain } from 'lucide-react';
+import { Shield, Terminal, FileEdit, FileText, File, Plus, Trash2, ChevronDown, ChevronRight, Save, RotateCw, Brain, Search, Globe, ListChecks, Workflow, Repeat } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '../../store';
 
-type ToolKey = keyof PermissionConfig;
+type ToolKey = Exclude<keyof PermissionConfig, 'external_directory'>;
 
 export function PermissionsSettings() {
     const { permissions, setPermissions } = useSettingsStore();
@@ -47,11 +47,20 @@ export function PermissionsSettings() {
     };
 
     const defaultPermissions: Record<ToolKey, ToolPermission> = {
-        read: { default: 'ask', rules: [] },
-        write: { default: 'ask', rules: [] },
-        edit: { default: 'ask', rules: [] },
-        bash: { default: 'ask', rules: [] },
-        skill: { default: 'allow', rules: [] }
+        read: { default: 'allow', rules: [] },
+        write: { default: 'allow', rules: [] },
+        edit: { default: 'allow', rules: [] },
+        bash: { default: 'allow', rules: [] },
+        skill: { default: 'allow', rules: [] },
+        list: { default: 'allow', rules: [] },
+        glob: { default: 'allow', rules: [] },
+        grep: { default: 'allow', rules: [] },
+        webfetch: { default: 'allow', rules: [] },
+        task: { default: 'allow', rules: [] },
+        lsp: { default: 'allow', rules: [] },
+        todoread: { default: 'allow', rules: [] },
+        todowrite: { default: 'allow', rules: [] },
+        doom_loop: { default: 'ask', rules: [] },
     };
 
     const normalizePermission = (value: PermissionValue | undefined, key: ToolKey): ToolPermission => {
@@ -72,7 +81,17 @@ export function PermissionsSettings() {
         write: normalizePermission(config?.write ?? permissions.write, 'write'),
         edit: normalizePermission(config?.edit ?? permissions.edit, 'edit'),
         bash: normalizePermission(config?.bash ?? permissions.bash, 'bash'),
-        skill: normalizePermission(config?.skill ?? permissions.skill, 'skill')
+        skill: normalizePermission(config?.skill ?? permissions.skill, 'skill'),
+        list: normalizePermission(config?.list ?? permissions.list, 'list'),
+        glob: normalizePermission(config?.glob ?? permissions.glob, 'glob'),
+        grep: normalizePermission(config?.grep ?? permissions.grep, 'grep'),
+        webfetch: normalizePermission(config?.webfetch ?? permissions.webfetch, 'webfetch'),
+        task: normalizePermission(config?.task ?? permissions.task, 'task'),
+        lsp: normalizePermission(config?.lsp ?? permissions.lsp, 'lsp'),
+        todoread: normalizePermission(config?.todoread ?? permissions.todoread, 'todoread'),
+        todowrite: normalizePermission(config?.todowrite ?? permissions.todowrite, 'todowrite'),
+        doom_loop: normalizePermission(config?.doom_loop ?? permissions.doom_loop, 'doom_loop'),
+        external_directory: config?.external_directory ?? permissions.external_directory
     });
 
     const handleLoad = async () => {
@@ -164,6 +183,15 @@ export function PermissionsSettings() {
         { key: 'write', label: 'Write Files', icon: File, desc: 'Creating new files' },
         { key: 'edit', label: 'Edit Files', icon: FileEdit, desc: 'Modifying existing files' },
         { key: 'bash', label: 'Terminal', icon: Terminal, desc: 'Executing shell commands' },
+        { key: 'list', label: 'List', icon: ListChecks, desc: 'Listing files and directories' },
+        { key: 'glob', label: 'Glob', icon: Search, desc: 'Finding files by glob pattern' },
+        { key: 'grep', label: 'Search', icon: Search, desc: 'Searching content by pattern' },
+        { key: 'webfetch', label: 'Web Fetch', icon: Globe, desc: 'Fetching URLs and content' },
+        { key: 'task', label: 'Subagents', icon: Workflow, desc: 'Launching subagents and tasks' },
+        { key: 'lsp', label: 'LSP', icon: Brain, desc: 'Language server queries' },
+        { key: 'todoread', label: 'Todo Read', icon: ListChecks, desc: 'Reading TODO tasks' },
+        { key: 'todowrite', label: 'Todo Write', icon: ListChecks, desc: 'Updating TODO tasks' },
+        { key: 'doom_loop', label: 'Doom Loop', icon: Repeat, desc: 'Repeated tool call guard' },
         { key: 'skill', label: 'Skills', icon: Brain, desc: 'Using AI skills/tools' },
     ];
 
@@ -173,7 +201,7 @@ export function PermissionsSettings() {
                 <Shield className="shrink-0 text-[var(--accent)]" size={20} />
                 <p>
                     Control granular permissions for the agent. Rules are evaluated top-down. 
-                    <span className="text-zinc-200 font-bold"> "Ask"</span> is recommended for most operations.
+                    Use <span className="text-zinc-200 font-bold">Allow</span> for trusted operations and <span className="text-zinc-200 font-bold">Ask</span> to require confirmation.
                 </p>
             </div>
 

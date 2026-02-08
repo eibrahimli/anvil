@@ -2,7 +2,7 @@ use crate::domain::ports::Tool;
 use crate::domain::models::ToolResult;
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::fs;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::oneshot;
@@ -10,6 +10,100 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 use serde::{Serialize, Deserialize};
+
+fn expand_tilde(input: &str) -> String {
+    if input.starts_with("~") {
+        if let Some(home) = dirs::home_dir() {
+            return input.replacen("~", &home.to_string_lossy(), 1);
+        }
+    }
+    input.to_string()
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            _ => normalized.push(component),
+        }
+    }
+    normalized
+}
+
+fn canonicalize_or_normalize(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| normalize_path(path))
+}
+
+fn path_variants(input: &str, workspace_root: &Path) -> Vec<String> {
+    if input.trim().is_empty() {
+        return Vec::new();
+    }
+
+    let expanded = expand_tilde(input);
+    let path = if Path::new(&expanded).is_absolute() {
+        PathBuf::from(&expanded)
+    } else {
+        workspace_root.join(&expanded)
+    };
+
+    let normalized = normalize_path(&path);
+    let mut variants = Vec::new();
+    let absolute = normalized.to_string_lossy().to_string();
+    if !absolute.is_empty() {
+        variants.push(absolute.clone());
+    }
+
+    if normalized.starts_with(workspace_root) {
+        if let Ok(relative) = normalized.strip_prefix(workspace_root) {
+            let relative = relative.to_string_lossy().to_string();
+            if !relative.is_empty() {
+                variants.push(relative);
+            }
+        }
+    }
+
+    variants
+}
+
+fn add_allow_rule_with_variants(
+    rules: &mut Vec<crate::config::manager::PermissionRule>,
+    pattern: String,
+    suggested_pattern: &str,
+    workspace_root: &Path,
+) {
+    if pattern.trim().is_empty() {
+        return;
+    }
+
+    let mut push_rule = |value: String| {
+        if value.trim().is_empty() {
+            return;
+        }
+        let exists = rules.iter().any(|rule| {
+            rule.pattern == value && rule.action == crate::config::Action::Allow
+        });
+        if !exists {
+            rules.push(crate::config::manager::PermissionRule {
+                pattern: value,
+                action: crate::config::Action::Allow,
+            });
+        }
+    };
+
+    push_rule(pattern.clone());
+
+    if pattern == suggested_pattern {
+        for variant in path_variants(suggested_pattern, workspace_root) {
+            if variant != pattern {
+                push_rule(variant);
+            }
+        }
+    }
+}
 
 #[derive(Serialize, Clone)]
 struct ConfirmationRequest {
@@ -26,12 +120,32 @@ struct ConfirmationRequest {
 pub struct ReadFileTool {
     pub workspace_root: PathBuf,
     pub permission_manager: Arc<tokio::sync::Mutex<crate::config::PermissionConfig>>,
+    pub session_id: String,
+    pub app: AppHandle,
+    pub pending_confirmations: Arc<Mutex<HashMap<String, oneshot::Sender<crate::domain::models::ConfirmationResponse>>>>,
 }
 
 impl ReadFileTool {
-    pub fn new(workspace_root: PathBuf, permission_manager: Arc<tokio::sync::Mutex<crate::config::PermissionConfig>>) -> Self {
-        Self { workspace_root, permission_manager }
+    pub fn new(
+        workspace_root: PathBuf,
+        session_id: String,
+        app: AppHandle,
+        pending_confirmations: Arc<Mutex<HashMap<String, oneshot::Sender<crate::domain::models::ConfirmationResponse>>>>,
+        permission_manager: Arc<tokio::sync::Mutex<crate::config::PermissionConfig>>,
+    ) -> Self {
+        Self { workspace_root, permission_manager, session_id, app, pending_confirmations }
     }
+}
+
+#[derive(Serialize, Clone)]
+struct PermissionConfirmationRequest {
+    id: String,
+    session_id: String,
+    #[serde(rename = "type")]
+    type_: String,
+    tool_name: String,
+    input: String,
+    suggested_pattern: String,
 }
 
 #[async_trait]
@@ -63,41 +177,111 @@ impl Tool for ReadFileTool {
             .ok_or("Missing 'path' parameter")?;
 
         // Expand ~ to home directory
-        let expanded_path_str = if path_str.starts_with("~") {
-            if let Some(home) = dirs::home_dir() {
-                path_str.replacen("~", &home.to_string_lossy(), 1)
-            } else {
-                path_str.to_string()
-            }
-        } else {
-            path_str.to_string()
-        };
+        let expanded_path_str = expand_tilde(path_str);
 
         // Construct target path (handle absolute vs relative)
         let path = if std::path::Path::new(&expanded_path_str).is_absolute() {
-            PathBuf::from(expanded_path_str)
+            PathBuf::from(expanded_path_str.clone())
         } else {
-            self.workspace_root.join(expanded_path_str)
+            self.workspace_root.join(&expanded_path_str)
         };
 
         // Check if path is allowed (Workspace OR External)
-        let allowed_location = {
+        let location_action = {
             let config = self.permission_manager.lock().await;
-            config.check_path_access(&path, &self.workspace_root) == crate::config::Action::Allow
+            config.check_path_access(&path, &self.workspace_root)
         };
         
-        if !allowed_location {
+        if location_action == crate::config::Action::Deny {
             return Err("Access denied: Path is outside workspace and not allowed by config".to_string());
         }
 
+        if location_action == crate::config::Action::Ask {
+            let request_id = Uuid::new_v4().to_string();
+            let (tx, rx) = oneshot::channel();
+
+            {
+                let mut map = self.pending_confirmations.lock().unwrap();
+                map.insert(request_id.clone(), tx);
+            }
+
+            let suggested_pattern = canonicalize_or_normalize(&path).to_string_lossy().to_string();
+            let event = PermissionConfirmationRequest {
+                id: request_id.clone(),
+                session_id: self.session_id.clone(),
+                type_: "permission".to_string(),
+                tool_name: "read_file".to_string(),
+                input: expanded_path_str.clone(),
+                suggested_pattern: suggested_pattern.clone(),
+            };
+
+            self.app.emit("request-confirmation", &event)
+                .map_err(|e| format!("Failed to emit confirmation event: {}", e))?;
+
+            let response = rx.await.map_err(|_| "Confirmation channel closed without response".to_string())?;
+
+            if !response.allowed {
+                return Err("User denied file read.".to_string());
+            }
+
+            if response.always {
+                let pattern = response.pattern.unwrap_or(suggested_pattern);
+                let mut config = self.permission_manager.lock().await;
+                let rules = config.external_directory.get_or_insert_with(HashMap::new);
+                rules.insert(pattern, crate::config::Action::Allow);
+            }
+        }
+
         // Check if specific file is allowed (e.g. .env protection)
-        let allowed_file = {
+        let action = {
             let config = self.permission_manager.lock().await;
-            config.read.evaluate(path_str) == crate::config::Action::Allow
+            config.read.evaluate(path_str)
         };
         
-        if !allowed_file {
-             return Err("Access denied: Permission denied for this file type".to_string());
+        match action {
+            crate::config::Action::Deny => {
+                return Err("Access denied: Permission denied for this file type".to_string());
+            }
+            crate::config::Action::Ask => {
+                let request_id = Uuid::new_v4().to_string();
+                let (tx, rx) = oneshot::channel();
+
+                {
+                    let mut map = self.pending_confirmations.lock().unwrap();
+                    map.insert(request_id.clone(), tx);
+                }
+
+                let suggested_pattern = path_str.to_string();
+                let event = PermissionConfirmationRequest {
+                    id: request_id.clone(),
+                    session_id: self.session_id.clone(),
+                    type_: "permission".to_string(),
+                    tool_name: "read_file".to_string(),
+                    input: path_str.to_string(),
+                    suggested_pattern: suggested_pattern.clone(),
+                };
+
+                self.app.emit("request-confirmation", &event)
+                    .map_err(|e| format!("Failed to emit confirmation event: {}", e))?;
+
+                let response = rx.await.map_err(|_| "Confirmation channel closed without response".to_string())?;
+
+                if !response.allowed {
+                    return Err("User denied file read.".to_string());
+                }
+
+                if response.always {
+                    let pattern = response.pattern.unwrap_or(suggested_pattern.clone());
+                    let mut config = self.permission_manager.lock().await;
+                    add_allow_rule_with_variants(
+                        &mut config.read.rules,
+                        pattern,
+                        &suggested_pattern,
+                        &self.workspace_root,
+                    );
+                }
+            }
+            crate::config::Action::Allow => {}
         }
 
         match fs::read_to_string(path).await {
@@ -166,15 +350,7 @@ impl Tool for WriteFileTool {
             .ok_or("Missing 'path' parameter")?;
         
         // Expand ~ to home directory
-        let expanded_path_str = if path_str.starts_with("~") {
-            if let Some(home) = dirs::home_dir() {
-                path_str.replacen("~", &home.to_string_lossy(), 1)
-            } else {
-                path_str.to_string()
-            }
-        } else {
-            path_str.to_string()
-        };
+        let expanded_path_str = expand_tilde(path_str);
 
         let content = input.get("content")
             .and_then(|v| v.as_str())
@@ -247,13 +423,14 @@ impl Tool for WriteFileTool {
             }
 
             if response.always {
-                if let Some(pattern) = response.pattern {
-                    let mut config = self.permission_manager.lock().await;
-                    config.write.rules.push(crate::config::manager::PermissionRule {
-                        pattern,
-                        action: crate::config::Action::Allow,
-                    });
-                }
+                let pattern = response.pattern.unwrap_or_else(|| path_str.to_string());
+                let mut config = self.permission_manager.lock().await;
+                add_allow_rule_with_variants(
+                    &mut config.write.rules,
+                    pattern,
+                    path_str,
+                    &self.workspace_root,
+                );
             }
             // --------------------------
         }
@@ -426,15 +603,7 @@ impl Tool for EditFileTool {
             .ok_or("Missing 'path' parameter")?;
         
         // Expand ~ to home directory
-        let expanded_path_str = if path_str.starts_with("~") {
-            if let Some(home) = dirs::home_dir() {
-                path_str.replacen("~", &home.to_string_lossy(), 1)
-            } else {
-                path_str.to_string()
-            }
-        } else {
-            path_str.to_string()
-        };
+        let expanded_path_str = expand_tilde(path_str);
 
         let edits_val = input.get("edits")
             .and_then(|v| v.as_array())
@@ -509,13 +678,14 @@ impl Tool for EditFileTool {
             }
 
             if response.always {
-                if let Some(pattern) = response.pattern {
-                    let mut config = self.permission_manager.lock().await;
-                    config.edit.rules.push(crate::config::manager::PermissionRule {
-                        pattern,
-                        action: crate::config::Action::Allow,
-                    });
-                }
+                let pattern = response.pattern.unwrap_or_else(|| path_str.to_string());
+                let mut config = self.permission_manager.lock().await;
+                add_allow_rule_with_variants(
+                    &mut config.edit.rules,
+                    pattern,
+                    path_str,
+                    &self.workspace_root,
+                );
             }
             // --------------------------
         }

@@ -1,3 +1,4 @@
+use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -38,7 +39,7 @@ pub struct PermissionRule {
     pub action: Action,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Default)]
 pub struct ToolPermission {
     #[serde(default)]
     pub default: Action,
@@ -47,11 +48,81 @@ pub struct ToolPermission {
 }
 
 impl ToolPermission {
+    fn from_json_value(value: serde_json::Value) -> Result<Self, String> {
+        match value {
+            serde_json::Value::String(_) => {
+                let action: Action = serde_json::from_value(value)
+                    .map_err(|e| format!("Invalid permission action: {}", e))?;
+                Ok(Self {
+                    default: action,
+                    rules: Vec::new(),
+                })
+            }
+            serde_json::Value::Object(map) => {
+                if map.contains_key("default") || map.contains_key("rules") {
+                    let default = map
+                        .get("default")
+                        .map(|v| serde_json::from_value::<Action>(v.clone()))
+                        .transpose()
+                        .map_err(|e| format!("Invalid permission default: {}", e))?
+                        .unwrap_or(Action::Ask);
+
+                    let rules = match map.get("rules") {
+                        Some(serde_json::Value::Array(items)) => items
+                            .iter()
+                            .map(|item| {
+                                serde_json::from_value::<PermissionRule>(item.clone())
+                                    .map_err(|e| format!("Invalid permission rule: {}", e))
+                            })
+                            .collect::<Result<Vec<_>, _>>()?,
+                        Some(_) => return Err("Invalid permission rules format".to_string()),
+                        None => Vec::new(),
+                    };
+
+                    return Ok(Self { default, rules });
+                }
+
+                let mut default = Action::Ask;
+                let mut rules = Vec::new();
+                for (key, val) in map {
+                    let action: Action = serde_json::from_value(val)
+                        .map_err(|e| format!("Invalid permission action: {}", e))?;
+                    if key == "*" {
+                        default = action;
+                    } else {
+                        rules.push(PermissionRule {
+                            pattern: key,
+                            action,
+                        });
+                    }
+                }
+
+                Ok(Self { default, rules })
+            }
+            _ => Err("Invalid permission format".to_string()),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ToolPermission {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        Self::from_json_value(value).map_err(de::Error::custom)
+    }
+}
+
+impl ToolPermission {
     /// Evaluate permission for a given input string (command or path)
     pub fn evaluate(&self, input: &str) -> Action {
         let mut matched_action = self.default.clone();
 
         for rule in &self.rules {
+            if rule.pattern.trim().is_empty() {
+                continue;
+            }
             if let Ok(pattern) = glob::Pattern::new(&rule.pattern) {
                 if pattern.matches(input) {
                     matched_action = rule.action.clone();
@@ -64,7 +135,7 @@ impl ToolPermission {
 }
 
 /// Permission configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize)]
 pub struct PermissionConfig {
     #[serde(default)]
     pub bash: ToolPermission,
@@ -77,7 +148,223 @@ pub struct PermissionConfig {
     #[serde(default)]
     pub skill: ToolPermission,
     #[serde(default)]
+    pub list: ToolPermission,
+    #[serde(default)]
+    pub glob: ToolPermission,
+    #[serde(default)]
+    pub grep: ToolPermission,
+    #[serde(default)]
+    pub webfetch: ToolPermission,
+    #[serde(default)]
+    pub task: ToolPermission,
+    #[serde(default)]
+    pub lsp: ToolPermission,
+    #[serde(default)]
+    pub todoread: ToolPermission,
+    #[serde(default)]
+    pub todowrite: ToolPermission,
+    #[serde(default)]
+    pub doom_loop: ToolPermission,
+    #[serde(default)]
     pub external_directory: Option<HashMap<String, Action>>,
+}
+
+impl Default for PermissionConfig {
+    fn default() -> Self {
+        let allow = ToolPermission {
+            default: Action::Allow,
+            rules: Vec::new(),
+        };
+
+        Self {
+            bash: allow.clone(),
+            edit: allow.clone(),
+            read: ToolPermission {
+                default: Action::Allow,
+                rules: default_read_rules(),
+            },
+            write: allow.clone(),
+            skill: allow.clone(),
+            list: allow.clone(),
+            glob: allow.clone(),
+            grep: allow.clone(),
+            webfetch: allow.clone(),
+            task: allow.clone(),
+            lsp: allow.clone(),
+            todoread: allow.clone(),
+            todowrite: allow.clone(),
+            doom_loop: ToolPermission {
+                default: Action::Ask,
+                rules: Vec::new(),
+            },
+            external_directory: None,
+        }
+    }
+}
+
+impl PermissionConfig {
+    fn from_json_value(value: serde_json::Value) -> Result<Self, String> {
+        match value {
+            serde_json::Value::String(_) => {
+                let action: Action = serde_json::from_value(value)
+                    .map_err(|e| format!("Invalid permission action: {}", e))?;
+                let mut config = PermissionConfig::default();
+                config.apply_global_default(action, &[]);
+                config.ensure_default_read_rules();
+                Ok(config)
+            }
+            serde_json::Value::Object(map) => {
+                let mut config = PermissionConfig::default();
+                let mut global_default: Option<Action> = None;
+                let mut explicit_tools: Vec<String> = Vec::new();
+
+                for (key, val) in map {
+                    match key.as_str() {
+                        "*" => {
+                            global_default = Some(
+                                serde_json::from_value::<Action>(val)
+                                    .map_err(|e| format!("Invalid permission action: {}", e))?,
+                            );
+                        }
+                        "external_directory" => {
+                            let rules: HashMap<String, Action> = serde_json::from_value(val)
+                                .map_err(|e| format!("Invalid external_directory rules: {}", e))?;
+                            config.external_directory = Some(rules);
+                        }
+                        "bash" => {
+                            config.bash = ToolPermission::from_json_value(val)?;
+                            explicit_tools.push("bash".to_string());
+                        }
+                        "edit" => {
+                            config.edit = ToolPermission::from_json_value(val)?;
+                            explicit_tools.push("edit".to_string());
+                        }
+                        "read" => {
+                            config.read = ToolPermission::from_json_value(val)?;
+                            explicit_tools.push("read".to_string());
+                        }
+                        "write" => {
+                            config.write = ToolPermission::from_json_value(val)?;
+                            explicit_tools.push("write".to_string());
+                        }
+                        "skill" => {
+                            config.skill = ToolPermission::from_json_value(val)?;
+                            explicit_tools.push("skill".to_string());
+                        }
+                        "list" => {
+                            config.list = ToolPermission::from_json_value(val)?;
+                            explicit_tools.push("list".to_string());
+                        }
+                        "glob" => {
+                            config.glob = ToolPermission::from_json_value(val)?;
+                            explicit_tools.push("glob".to_string());
+                        }
+                        "grep" => {
+                            config.grep = ToolPermission::from_json_value(val)?;
+                            explicit_tools.push("grep".to_string());
+                        }
+                        "webfetch" => {
+                            config.webfetch = ToolPermission::from_json_value(val)?;
+                            explicit_tools.push("webfetch".to_string());
+                        }
+                        "task" => {
+                            config.task = ToolPermission::from_json_value(val)?;
+                            explicit_tools.push("task".to_string());
+                        }
+                        "lsp" => {
+                            config.lsp = ToolPermission::from_json_value(val)?;
+                            explicit_tools.push("lsp".to_string());
+                        }
+                        "todoread" => {
+                            config.todoread = ToolPermission::from_json_value(val)?;
+                            explicit_tools.push("todoread".to_string());
+                        }
+                        "todowrite" => {
+                            config.todowrite = ToolPermission::from_json_value(val)?;
+                            explicit_tools.push("todowrite".to_string());
+                        }
+                        "doom_loop" => {
+                            config.doom_loop = ToolPermission::from_json_value(val)?;
+                            explicit_tools.push("doom_loop".to_string());
+                        }
+                        _ => {}
+                    }
+                }
+
+                if let Some(action) = global_default {
+                    config.apply_global_default(action, &explicit_tools);
+                }
+
+                config.ensure_default_read_rules();
+                Ok(config)
+            }
+            _ => Err("Invalid permission format".to_string()),
+        }
+    }
+
+    fn apply_global_default(&mut self, action: Action, explicit_tools: &[String]) {
+        let is_explicit = |tool: &str| explicit_tools.iter().any(|t| t == tool);
+        if !is_explicit("bash") {
+            self.bash.default = action.clone();
+        }
+        if !is_explicit("edit") {
+            self.edit.default = action.clone();
+        }
+        if !is_explicit("read") {
+            self.read.default = action.clone();
+        }
+        if !is_explicit("write") {
+            self.write.default = action.clone();
+        }
+        if !is_explicit("skill") {
+            self.skill.default = action.clone();
+        }
+        if !is_explicit("list") {
+            self.list.default = action.clone();
+        }
+        if !is_explicit("glob") {
+            self.glob.default = action.clone();
+        }
+        if !is_explicit("grep") {
+            self.grep.default = action.clone();
+        }
+        if !is_explicit("webfetch") {
+            self.webfetch.default = action.clone();
+        }
+        if !is_explicit("task") {
+            self.task.default = action.clone();
+        }
+        if !is_explicit("lsp") {
+            self.lsp.default = action.clone();
+        }
+        if !is_explicit("todoread") {
+            self.todoread.default = action.clone();
+        }
+        if !is_explicit("todowrite") {
+            self.todowrite.default = action.clone();
+        }
+        if !is_explicit("doom_loop") {
+            self.doom_loop.default = action;
+        }
+    }
+
+    fn ensure_default_read_rules(&mut self) {
+        if !self.read.rules.is_empty() {
+            return;
+        }
+
+        self.read.rules = default_read_rules();
+    }
+}
+
+impl<'de> Deserialize<'de> for PermissionConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        Self::from_json_value(value).map_err(de::Error::custom)
+    }
 }
 
 impl PermissionConfig {
@@ -111,6 +398,7 @@ impl PermissionConfig {
         if let Some(ref rules) = self.external_directory {
             let path_str = resolved_path.to_string_lossy();
             let mut explicit_allow = false;
+            let mut explicit_ask = false;
 
             for (pattern, action) in rules {
                 // Handle home expansion in pattern
@@ -129,7 +417,7 @@ impl PermissionConfig {
                         match action {
                             Action::Deny => return Action::Deny,
                             Action::Allow => explicit_allow = true,
-                            Action::Ask => (),
+                            Action::Ask => explicit_ask = true,
                         }
                     }
                 }
@@ -138,9 +426,13 @@ impl PermissionConfig {
             if explicit_allow {
                 return Action::Allow;
             }
+            if explicit_ask {
+                return Action::Ask;
+            }
+            return Action::Ask;
         }
 
-        Action::Deny
+        Action::Ask
     }
 }
 
@@ -463,8 +755,7 @@ impl ConfigManager {
                 merged.provider.insert(key.clone(), value.clone());
             }
 
-            // Merge permissions
-            merged.permission = Self::merge_permissions(&merged.permission, &local.permission);
+            // Permissions are global only (ignore local overrides)
 
             // Merge instructions (local adds to global)
             let mut combined_instructions = merged.instructions.clone();
@@ -532,6 +823,7 @@ impl ConfigManager {
     }
 
     /// Merge two permission configurations
+    #[allow(dead_code)]
     fn merge_permissions(global: &PermissionConfig, local: &PermissionConfig) -> PermissionConfig {
         PermissionConfig {
             bash: Self::merge_tool_permissions(&global.bash, &local.bash),
@@ -539,6 +831,15 @@ impl ConfigManager {
             read: Self::merge_tool_permissions(&global.read, &local.read),
             write: Self::merge_tool_permissions(&global.write, &local.write),
             skill: Self::merge_tool_permissions(&global.skill, &local.skill),
+            list: Self::merge_tool_permissions(&global.list, &local.list),
+            glob: Self::merge_tool_permissions(&global.glob, &local.glob),
+            grep: Self::merge_tool_permissions(&global.grep, &local.grep),
+            webfetch: Self::merge_tool_permissions(&global.webfetch, &local.webfetch),
+            task: Self::merge_tool_permissions(&global.task, &local.task),
+            lsp: Self::merge_tool_permissions(&global.lsp, &local.lsp),
+            todoread: Self::merge_tool_permissions(&global.todoread, &local.todoread),
+            todowrite: Self::merge_tool_permissions(&global.todowrite, &local.todowrite),
+            doom_loop: Self::merge_tool_permissions(&global.doom_loop, &local.doom_loop),
             external_directory: local
                 .external_directory
                 .clone()
@@ -547,6 +848,7 @@ impl ConfigManager {
     }
 
     /// Merge two tool permission configurations
+    #[allow(dead_code)]
     fn merge_tool_permissions(global: &ToolPermission, local: &ToolPermission) -> ToolPermission {
         let mut merged_rules = global.rules.clone();
         // Local rules are appended to global rules (so they have higher priority in last-match-wins)
@@ -584,51 +886,56 @@ impl ConfigManager {
         // Set default model
         config.model = Some(DEFAULT_MODEL.to_string());
 
-        // Set up default read permissions to protect .env files
-        // Order matters: Last match wins. So specific ALLOWs must come after general DENYs.
-        let read_rules = vec![
-            PermissionRule {
-                pattern: ".env".to_string(),
-                action: Action::Deny,
-            },
-            PermissionRule {
-                pattern: ".env.*".to_string(),
-                action: Action::Deny,
-            },
-            PermissionRule {
-                pattern: "*.env".to_string(),
-                action: Action::Deny,
-            },
-            // Exceptions
-            PermissionRule {
-                pattern: ".env.example".to_string(),
-                action: Action::Allow,
-            },
-            PermissionRule {
-                pattern: "*.env.example".to_string(),
-                action: Action::Allow,
-            },
-        ];
-
+        // Default permissions (OpenCode-style): most are allow
         config.permission.read = ToolPermission {
-            default: Action::Ask,
-            rules: read_rules,
-        };
-
-        // Default bash permissions: ask for everything
-        config.permission.bash = ToolPermission {
-            default: Action::Ask,
-            rules: Vec::new(),
-        };
-
-        // Default skill permissions: allow all skills
-        config.permission.skill = ToolPermission {
             default: Action::Allow,
-            rules: Vec::new(),
+            rules: default_read_rules(),
         };
+
+        config.permission.write.default = Action::Allow;
+        config.permission.edit.default = Action::Allow;
+        config.permission.bash.default = Action::Allow;
+        config.permission.skill.default = Action::Allow;
+        config.permission.list.default = Action::Allow;
+        config.permission.glob.default = Action::Allow;
+        config.permission.grep.default = Action::Allow;
+        config.permission.webfetch.default = Action::Allow;
+        config.permission.task.default = Action::Allow;
+        config.permission.lsp.default = Action::Allow;
+        config.permission.todoread.default = Action::Allow;
+        config.permission.todowrite.default = Action::Allow;
+
+        // Doom loop guard defaults to ask
+        config.permission.doom_loop.default = Action::Ask;
 
         config
     }
+}
+
+fn default_read_rules() -> Vec<PermissionRule> {
+    vec![
+        PermissionRule {
+            pattern: ".env".to_string(),
+            action: Action::Deny,
+        },
+        PermissionRule {
+            pattern: ".env.*".to_string(),
+            action: Action::Deny,
+        },
+        PermissionRule {
+            pattern: "*.env".to_string(),
+            action: Action::Deny,
+        },
+        // Exceptions
+        PermissionRule {
+            pattern: ".env.example".to_string(),
+            action: Action::Allow,
+        },
+        PermissionRule {
+            pattern: "*.env.example".to_string(),
+            action: Action::Allow,
+        },
+    ]
 }
 
 impl Default for ConfigManager {
@@ -830,7 +1137,7 @@ mod tests {
             Action::Allow
         );
 
-        assert_eq!(config.permission.read.evaluate("README.md"), Action::Ask);
+        assert_eq!(config.permission.read.evaluate("README.md"), Action::Allow);
     }
 
     #[test]
