@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react";
+import type { ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useStore } from "../store";
@@ -39,6 +40,7 @@ export function Chat() {
     const modelDropdownRef = useRef<HTMLDivElement>(null);
     const imageInputRef = useRef<HTMLInputElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const textareaOverlayRef = useRef<HTMLDivElement>(null);
     
     useAgentEvents(); // Hook to listen for backend events (file open, etc.)
 
@@ -110,6 +112,34 @@ export function Chat() {
             return acc;
         }, [] as { path: string; name: string; relative: string }[]);
     }, [mentionTokens, workspacePath]);
+
+    const highlightedInput = useMemo(() => {
+        if (!input) return [" "];
+        const mentionRegex = /@[\w./-]+/g;
+        const parts: ReactNode[] = [];
+        let lastIndex = 0;
+        let match: RegExpExecArray | null;
+        while ((match = mentionRegex.exec(input)) !== null) {
+            const start = match.index;
+            const value = match[0];
+            if (start > lastIndex) {
+                parts.push(input.slice(lastIndex, start));
+            }
+            parts.push(
+                <span
+                    key={`mention-${start}-${value}`}
+                    className="rounded-md bg-[var(--accent)]/15 px-1 py-0.5 font-mono text-[12px] text-[var(--accent)]"
+                >
+                    {value}
+                </span>
+            );
+            lastIndex = start + value.length;
+        }
+        if (lastIndex < input.length) {
+            parts.push(input.slice(lastIndex));
+        }
+        return parts;
+    }, [input]);
 
     const slashMatch = input.slice(0, cursorPosition).match(/\/(\w*)$/);
     const slashQuery = slashMatch?.[1]?.toLowerCase() ?? "";
@@ -968,29 +998,43 @@ export function Chat() {
                                 ))}
                             </div>
                         )}
-                        <textarea
-                            ref={textareaRef}
-                            className="w-full bg-transparent p-4 pr-16 text-[var(--text-primary)] placeholder-zinc-600 focus:outline-none resize-none font-sans text-sm min-h-[60px]"
-                            rows={2}
-                            value={input}
-                            onChange={e => {
-                                setInput(e.target.value);
-                                setCursorPosition(e.target.selectionStart);
-                                const nextValue = e.target.value;
-                                const slashOpen = /\/(\w*)$/.test(nextValue.slice(0, e.target.selectionStart));
-                                setShowCommandPalette(slashOpen);
-                                if (!slashOpen) {
-                                    setCommandIndex(0);
-                                }
-                            }}
-                            onSelect={e => setCursorPosition(e.currentTarget.selectionStart)}
-                            onKeyUp={e => setCursorPosition(e.currentTarget.selectionStart)}
-                            onKeyDown={e => {
-                                if (showCommandPalette && slashItems.length > 0) {
-                                    if (e.key === "ArrowDown") {
-                                        e.preventDefault();
-                                        setCommandIndex((idx) => (idx + 1) % slashItems.length);
-                                        return;
+                        <div className="relative">
+                            <div
+                                ref={textareaOverlayRef}
+                                aria-hidden
+                                className="pointer-events-none absolute inset-0 overflow-hidden p-4 pr-16 text-[var(--text-primary)] font-sans text-sm whitespace-pre-wrap break-words"
+                            >
+                                {highlightedInput}
+                            </div>
+                            <textarea
+                                ref={textareaRef}
+                                className="w-full bg-transparent p-4 pr-16 text-transparent caret-[var(--text-primary)] placeholder-zinc-600 focus:outline-none resize-none font-sans text-sm min-h-[60px] whitespace-pre-wrap break-words selection:bg-[var(--accent)]/30 selection:text-[var(--text-primary)]"
+                                rows={2}
+                                value={input}
+                                onChange={e => {
+                                    setInput(e.target.value);
+                                    setCursorPosition(e.target.selectionStart);
+                                    const nextValue = e.target.value;
+                                    const slashOpen = /\/(\w*)$/.test(nextValue.slice(0, e.target.selectionStart));
+                                    setShowCommandPalette(slashOpen);
+                                    if (!slashOpen) {
+                                        setCommandIndex(0);
+                                    }
+                                }}
+                                onSelect={e => setCursorPosition(e.currentTarget.selectionStart)}
+                                onKeyUp={e => setCursorPosition(e.currentTarget.selectionStart)}
+                                onScroll={e => {
+                                    if (textareaOverlayRef.current) {
+                                        textareaOverlayRef.current.scrollTop = e.currentTarget.scrollTop;
+                                        textareaOverlayRef.current.scrollLeft = e.currentTarget.scrollLeft;
+                                    }
+                                }}
+                                onKeyDown={e => {
+                                    if (showCommandPalette && slashItems.length > 0) {
+                                        if (e.key === "ArrowDown") {
+                                            e.preventDefault();
+                                            setCommandIndex((idx) => (idx + 1) % slashItems.length);
+                                            return;
                                     }
                                     if (e.key === "ArrowUp") {
                                         e.preventDefault();
@@ -1039,9 +1083,10 @@ export function Chat() {
                                     e.preventDefault();
                                     handleSend();
                                 }
-                            }}
-                            placeholder="Explain your changes or ask a question..."
-                        />
+                                }}
+                                placeholder="Explain your changes or ask a question..."
+                            />
+                        </div>
                         {((mentionQuery !== null) || showCommandPalette) && (
                             <div
                                 className="absolute left-4 bottom-full mb-2 w-96 rounded-2xl border border-[var(--border)] bg-[var(--bg-base)] shadow-2xl overflow-hidden z-[60] ring-1 ring-black/40 pointer-events-auto"
