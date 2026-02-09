@@ -117,7 +117,7 @@ describe('StatusIndicator', () => {
   })
 
   it('shows all status types correctly', () => {
-    const statuses = ['planning', 'researching', 'implementing', 'executing', 'testing', 'waiting', 'done'] as const
+    const statuses = ['planning', 'researching', 'implementing', 'executing', 'testing', 'waiting', 'responding', 'done'] as const
     
     statuses.forEach((status, index) => {
       const { unmount } = render(<StatusIndicator key={index} status={status} />)

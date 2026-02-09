@@ -1,8 +1,15 @@
+export interface Attachment {
+    name: string;
+    mime_type: string;
+    data: string;
+}
+
 export interface Message {
     role: "System" | "User" | "Assistant" | "Tool";
     content: string;
     tool_calls?: ToolCall[];
     tool_call_id?: string;
+    attachments?: Attachment[];
 }
 
 export interface ToolCall {
@@ -23,6 +30,7 @@ export interface Message {
     content: string;
     tool_calls?: ToolCall[];
     tool_call_id?: string;
+    attachments?: Attachment[];
 }
 
 export interface ToolCall {

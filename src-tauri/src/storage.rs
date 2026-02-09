@@ -50,12 +50,20 @@ impl Storage {
                 content TEXT,
                 tool_calls TEXT,
                 tool_call_id TEXT,
+                attachments TEXT,
                 timestamp TEXT NOT NULL DEFAULT (datetime('now')),
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             )",
             [],
         )
         .map_err(|e| e.to_string())?;
+
+        if let Err(e) = db.execute("ALTER TABLE messages ADD COLUMN attachments TEXT", []) {
+            let message = e.to_string();
+            if !message.contains("duplicate column name") {
+                return Err(message);
+            }
+        }
 
         // Create indexes for better performance
         db.execute(
@@ -114,15 +122,22 @@ impl Storage {
                 .and_then(|t| serde_json::to_string(t).ok())
                 .unwrap_or_default();
 
+            let attachments_json = message
+                .attachments
+                .as_ref()
+                .and_then(|a| serde_json::to_string(a).ok())
+                .unwrap_or_default();
+
             tx.execute(
-                "INSERT INTO messages (session_id, role, content, tool_calls, tool_call_id, timestamp)
-                 VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))",
+                "INSERT INTO messages (session_id, role, content, tool_calls, tool_call_id, attachments, timestamp)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'))",
                 params![
                     session.id.to_string(),
                     format!("{:?}", message.role),
                     message.content.clone().unwrap_or_default(),
                     tool_calls_json,
                     message.tool_call_id.clone(),
+                    attachments_json,
                 ],
             ).map_err(|e| e.to_string())?;
         }
@@ -150,7 +165,7 @@ impl Storage {
             let mut stmt = self
                 .db
                 .prepare(
-                    "SELECT role, content, tool_calls, tool_call_id 
+                    "SELECT role, content, tool_calls, tool_call_id, attachments 
                  FROM messages 
                  WHERE session_id = ?1 
                  ORDER BY id ASC",
@@ -185,11 +200,15 @@ impl Storage {
                         tool_call_id
                     };
 
+                    let attachments_str: Option<String> = row.get(4)?;
+                    let attachments = attachments_str.and_then(|s| serde_json::from_str(&s).ok());
+
                     Ok(Message {
                         role,
                         content,
                         tool_calls,
                         tool_call_id,
+                        attachments,
                     })
                 })
                 .map_err(|e| e.to_string())?;

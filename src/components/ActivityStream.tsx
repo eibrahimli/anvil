@@ -5,8 +5,9 @@ import clsx from 'clsx';
 
 interface ActivityItem {
   id: string;
-  type: 'user' | 'assistant' | 'tool' | 'loading' | 'plan';
+  type: 'user' | 'assistant' | 'tool' | 'loading' | 'plan' | 'system';
   content?: string;
+  attachments?: { name: string; mime_type: string; data: string }[];
   toolCallId?: string;
   toolName?: string;
   actionType?: 'read' | 'write' | 'execute' | 'search' | 'edit' | 'generic';
@@ -26,6 +27,7 @@ interface ActivityStreamProps {
   messages: Message[];
   isLoading?: boolean;
   view?: 'stream' | 'timeline';
+  meta?: { mode: string; model: string };
 }
 
 function LoadingBlock() {
@@ -103,6 +105,10 @@ function extractPlanSteps(content: string) {
   };
 }
 
+function hasPlanHeader(content: string) {
+  return /^(#{2,3}\s*(plan|tasks|todo|to-dos?)|plan:|tasks:|todo:)/im.test(content);
+}
+
 function parseArguments(rawArgs: string) {
   if (!rawArgs) return null;
   try {
@@ -158,11 +164,30 @@ function summarizeToolCall(toolName: string, rawArgs: string) {
 }
 
 function isErrorContent(content: string) {
-  const lowered = content.toLowerCase();
-  return lowered.includes('error') || lowered.includes('denied') || lowered.startsWith('err');
+  const trimmed = content.trim();
+  if (trimmed.startsWith("Error:") || trimmed.startsWith("error:") || trimmed.startsWith("Permission denied")) {
+    return true;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object") {
+      const status = parsed.status || parsed.state;
+      if (status && String(status).toLowerCase() === "error") {
+        return true;
+      }
+      if (parsed.error || parsed.errors) {
+        return true;
+      }
+    }
+  } catch {
+    // Not JSON
+  }
+
+  return false;
 }
 
-export function ActivityStream({ messages, isLoading, view = 'stream' }: ActivityStreamProps) {
+export function ActivityStream({ messages, isLoading, view = 'stream', meta }: ActivityStreamProps) {
   const turns = useMemo(() => {
     const list: ActivityTurn[] = [];
     let currentTurn: ActivityTurn | null = null;
@@ -184,6 +209,12 @@ export function ActivityStream({ messages, isLoading, view = 'stream' }: Activit
 
     messages.forEach((msg, idx) => {
       if (msg.role === 'System') {
+        const turn = ensureTurn();
+        turn.items.push({
+          id: `system-${idx}`,
+          type: 'system',
+          content: msg.content || ''
+        });
         return;
       }
 
@@ -193,7 +224,8 @@ export function ActivityStream({ messages, isLoading, view = 'stream' }: Activit
         currentTurn.items.push({
           id: `user-${idx}`,
           type: 'user',
-          content: msg.content || ''
+          content: msg.content || '',
+          attachments: msg.attachments
         });
         return;
       }
@@ -203,7 +235,8 @@ export function ActivityStream({ messages, isLoading, view = 'stream' }: Activit
       if (msg.role === 'Assistant') {
         const content = stripLegacyToolLog((msg.content || '').trim());
         if (content) {
-          const extracted = extractPlanSteps(content);
+          const allowPlan = meta?.mode === 'plan' || hasPlanHeader(content);
+          const extracted = allowPlan ? extractPlanSteps(content) : { steps: [], remaining: content };
           if (extracted.steps.length > 0) {
             turn.items.push({
               id: `plan-${idx}`,
@@ -308,6 +341,7 @@ export function ActivityStream({ messages, isLoading, view = 'stream' }: Activit
                             key={activity.id}
                             role="user"
                             content={activity.content || ''}
+                            attachments={activity.attachments}
                           />
                         );
                       case 'assistant':
@@ -315,6 +349,15 @@ export function ActivityStream({ messages, isLoading, view = 'stream' }: Activit
                           <MessageCard
                             key={activity.id}
                             role="assistant"
+                            content={activity.content || ''}
+                            meta={meta ? `${meta.mode.toUpperCase()} | ${meta.model}` : undefined}
+                          />
+                        );
+                      case 'system':
+                        return (
+                          <MessageCard
+                            key={activity.id}
+                            role="system"
                             content={activity.content || ''}
                           />
                         );

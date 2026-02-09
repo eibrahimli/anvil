@@ -219,6 +219,7 @@ pub async fn chat(
     model_id: Option<String>,
     api_key: Option<String>,
     mode: Option<String>,
+    attachments: Option<Vec<crate::domain::models::Attachment>>,
 ) -> Result<String, String> {
     let uuid = Uuid::parse_str(&session_id).map_err(|_| "Invalid UUID")?;
 
@@ -250,7 +251,7 @@ pub async fn chat(
         agent.update_model(adapter, ModelId(m_id));
     }
 
-    agent.step(Some(message)).await
+    agent.step(Some(message), attachments).await
 }
 
 #[tauri::command]
@@ -262,6 +263,7 @@ pub async fn stream_chat(
     model_id: Option<String>,
     api_key: Option<String>,
     mode: Option<String>,
+    attachments: Option<Vec<crate::domain::models::Attachment>>,
 ) -> Result<String, String> {
     let uuid = Uuid::parse_str(&session_id).map_err(|_| "Invalid UUID")?;
 
@@ -302,7 +304,7 @@ pub async fn stream_chat(
         }
     });
 
-    agent.step_stream(Some(message), tx).await
+    agent.step_stream(Some(message), attachments, tx).await
 }
 
 #[tauri::command]

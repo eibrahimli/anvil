@@ -25,6 +25,15 @@ pub struct Message {
     pub content: Option<String>,
     pub tool_calls: Option<Vec<ToolCall>>,
     pub tool_call_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachments: Option<Vec<Attachment>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Attachment {
+    pub name: String,
+    pub mime_type: String,
+    pub data: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]

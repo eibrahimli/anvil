@@ -21,7 +21,7 @@ interface Session {
 }
 
 export function SessionList({ showHeader = true }: { showHeader?: boolean }) {
-  const { workspacePath, sessionId, setSessionId, setMessages } = useStore();
+  const { workspacePath, sessionId, setSessionId, setMessages, setWorkspacePath } = useStore();
   const { activeProviderId, activeModelId, apiKeys } = useProviderStore();
   const { setSettingsOpen } = useUIStore();
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -66,7 +66,16 @@ export function SessionList({ showHeader = true }: { showHeader?: boolean }) {
   }, [workspacePath, sessionId]);
 
   const handleNewSession = async () => {
-    if (!workspacePath) return;
+    let nextWorkspace = workspacePath;
+    if (!nextWorkspace) {
+      try {
+        nextWorkspace = await invoke<string>("get_cwd");
+        setWorkspacePath(nextWorkspace);
+      } catch (e) {
+        console.error("No workspace selected:", e);
+        return;
+      }
+    }
     
     // Check API key
     const key = apiKeys[activeProviderId];
@@ -78,7 +87,7 @@ export function SessionList({ showHeader = true }: { showHeader?: boolean }) {
     try {
       setLoading(true);
       const sid = await invoke<string>("create_session", {
-        workspacePath,
+        workspacePath: nextWorkspace,
         apiKey: key || '',
         provider: activeProviderId,
         modelId: activeModelId

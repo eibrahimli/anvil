@@ -141,7 +141,7 @@ impl Agent {
         });
     }
 
-    pub async fn step(&mut self, user_input: Option<String>) -> Result<String, String> {
+    pub async fn step(&mut self, user_input: Option<String>, attachments: Option<Vec<Attachment>>) -> Result<String, String> {
         // 1. Add User Message
         if let Some(input) = user_input {
             self.session.messages.push(Message {
@@ -149,6 +149,7 @@ impl Agent {
                 content: Some(input),
                 tool_calls: None,
                 tool_call_id: None,
+                attachments,
             });
         }
 
@@ -210,6 +211,7 @@ Previous instructions remain active.",
                  content: Some(system_content),
                  tool_calls: None,
                  tool_call_id: None,
+                 attachments: None,
              });
         }
 
@@ -228,6 +230,7 @@ Previous instructions remain active.",
                 content: Some(res.content.clone()),
                 tool_calls: None,
                 tool_call_id: None,
+                attachments: None,
             });
             
             return Ok(res.content);
@@ -271,6 +274,7 @@ Previous instructions remain active.",
                 content: Some(res.content.clone()),
                 tool_calls: res.tool_calls.clone(),
                 tool_call_id: res.tool_call_id.clone(),
+                attachments: None,
             });
 
             // Check for Tool Calls
@@ -309,6 +313,7 @@ Previous instructions remain active.",
                                         )),
                                         tool_calls: None,
                                         tool_call_id: Some(call.id),
+                                        attachments: None,
                                     });
                                     continue;
                                 }
@@ -337,6 +342,7 @@ Previous instructions remain active.",
                                     content: Some(result_content),
                                     tool_calls: None,
                                     tool_call_id: Some(call.id),
+                                    attachments: None,
                                 });
                                 continue;
                             }
@@ -360,6 +366,7 @@ Previous instructions remain active.",
                                             content: Some(result_content),
                                             tool_calls: None,
                                             tool_call_id: Some(call.id),
+                                            attachments: None,
                                         });
                                         continue;
                                     }
@@ -377,6 +384,7 @@ Previous instructions remain active.",
                                 content: Some(format!("Error: {}", err)),
                                 tool_calls: None,
                                 tool_call_id: Some(call.id),
+                                attachments: None,
                             });
                             continue;
                         }
@@ -390,6 +398,7 @@ Previous instructions remain active.",
                             content: Some(format!("Error: Permission denied for tool '{}'.", call.name)),
                             tool_calls: None,
                             tool_call_id: Some(call.id),
+                            attachments: None,
                         });
                         if let Some(pattern) = temp_external_rule {
                             self.remove_external_directory_rule(&pattern).await;
@@ -417,6 +426,7 @@ Previous instructions remain active.",
                                     content: Some(format!("Error: Permission denied for tool '{}'.", call.name)),
                                     tool_calls: None,
                                     tool_call_id: Some(call.id),
+                                    attachments: None,
                                 });
                                 if let Some(pattern) = temp_external_rule {
                                     self.remove_external_directory_rule(&pattern).await;
@@ -446,6 +456,7 @@ Previous instructions remain active.",
                         content: Some(result_content),
                         tool_calls: None,
                         tool_call_id: Some(call.id),
+                        attachments: None,
                     });
                 }
                 // Loop continues to feed tool outputs back to model
@@ -456,7 +467,7 @@ Previous instructions remain active.",
         }
     }
 
-    pub async fn step_stream(&mut self, user_input: Option<String>, tx: Sender<String>) -> Result<String, String> {
+    pub async fn step_stream(&mut self, user_input: Option<String>, attachments: Option<Vec<Attachment>>, tx: Sender<String>) -> Result<String, String> {
         // 1. Add User Message
         if let Some(input) = user_input {
             self.session.messages.push(Message {
@@ -464,6 +475,7 @@ Previous instructions remain active.",
                 content: Some(input),
                 tool_calls: None,
                 tool_call_id: None,
+                attachments,
             });
         }
 
@@ -525,6 +537,7 @@ Previous instructions remain active.",
                  content: Some(system_content),
                  tool_calls: None,
                  tool_call_id: None,
+                 attachments: None,
              });
         }
 
@@ -543,6 +556,7 @@ Previous instructions remain active.",
                 content: Some(res.content.clone()),
                 tool_calls: None,
                 tool_call_id: None,
+                attachments: None,
             });
             
             return Ok(res.content);
@@ -588,6 +602,7 @@ Previous instructions remain active.",
                 content: Some(res.content.clone()),
                 tool_calls: res.tool_calls.clone(),
                 tool_call_id: res.tool_call_id.clone(),
+                attachments: None,
             });
 
             // Check for Tool Calls
@@ -632,6 +647,7 @@ Previous instructions remain active.",
                                         content: Some(err_msg),
                                         tool_calls: None,
                                         tool_call_id: Some(call.id.clone()),
+                                        attachments: None,
                                     });
                                     continue;
                                 }
@@ -661,6 +677,7 @@ Previous instructions remain active.",
                                     content: Some(err_msg),
                                     tool_calls: None,
                                     tool_call_id: Some(call.id.clone()),
+                                    attachments: None,
                                 });
                                 continue;
                             }
@@ -685,6 +702,7 @@ Previous instructions remain active.",
                                             content: Some(err_msg),
                                             tool_calls: None,
                                             tool_call_id: Some(call.id.clone()),
+                                            attachments: None,
                                         });
                                         continue;
                                     }
@@ -704,6 +722,7 @@ Previous instructions remain active.",
                                 content: Some(err_msg),
                                 tool_calls: None,
                                 tool_call_id: Some(call.id.clone()),
+                                attachments: None,
                             });
                             continue;
                         }
@@ -719,6 +738,7 @@ Previous instructions remain active.",
                             content: Some(err_msg),
                             tool_calls: None,
                             tool_call_id: Some(call.id.clone()),
+                            attachments: None,
                         });
                         if let Some(pattern) = temp_external_rule {
                             self.remove_external_directory_rule(&pattern).await;
@@ -748,6 +768,7 @@ Previous instructions remain active.",
                                     content: Some(err_msg),
                                     tool_calls: None,
                                     tool_call_id: Some(call.id.clone()),
+                                    attachments: None,
                                 });
                                 if let Some(pattern) = temp_external_rule {
                                     self.remove_external_directory_rule(&pattern).await;
@@ -779,6 +800,7 @@ Previous instructions remain active.",
                         content: Some(result_content),
                         tool_calls: None,
                         tool_call_id: Some(call.id.clone()),
+                        attachments: None,
                     });
                     
                     println!("[DEBUG] Tool '{}' executed, continuing loop", call.name);

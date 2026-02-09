@@ -41,11 +41,62 @@ struct OpenAIRequest {
 struct OpenAIMessage {
     role: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    content: Option<String>,
+    content: Option<OpenAIMessageContent>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_calls: Option<Vec<OpenAIToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_call_id: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum OpenAIMessageContent {
+    Text(String),
+    Parts(Vec<OpenAIContentPart>),
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type")]
+enum OpenAIContentPart {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "image_url")]
+    ImageUrl { image_url: OpenAIImageUrl },
+}
+
+#[derive(Serialize)]
+struct OpenAIImageUrl {
+    url: String,
+}
+
+fn build_openai_content(message: &Message) -> Option<OpenAIMessageContent> {
+    let text = message.content.clone().unwrap_or_default();
+    let attachments = message.attachments.clone().unwrap_or_default();
+
+    if attachments.is_empty() {
+        if text.is_empty() {
+            return None;
+        }
+        return Some(OpenAIMessageContent::Text(text));
+    }
+
+    let mut parts = Vec::new();
+    if !text.is_empty() {
+        parts.push(OpenAIContentPart::Text { text });
+    }
+
+    for attachment in attachments {
+        let url = format!("data:{};base64,{}", attachment.mime_type, attachment.data);
+        parts.push(OpenAIContentPart::ImageUrl {
+            image_url: OpenAIImageUrl { url },
+        });
+    }
+
+    if parts.is_empty() {
+        None
+    } else {
+        Some(OpenAIMessageContent::Parts(parts))
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -139,7 +190,7 @@ impl ModelAdapter for OpenAIAdapter {
                         Role::Assistant => "assistant".to_string(),
                         Role::Tool => "tool".to_string(),
                     },
-                    content: m.content.clone(),
+                    content: build_openai_content(m),
                     tool_calls,
                     tool_call_id: m.tool_call_id.clone(),
                 }
@@ -238,7 +289,7 @@ impl ModelAdapter for OpenAIAdapter {
                         Role::Assistant => "assistant".to_string(),
                         Role::Tool => "tool".to_string(),
                     },
-                    content: m.content.clone(),
+                    content: build_openai_content(m),
                     tool_calls,
                     tool_call_id: m.tool_call_id.clone(),
                 }

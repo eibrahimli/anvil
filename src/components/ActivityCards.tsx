@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { ChevronDown, ChevronUp, FileText, Terminal, Search, Edit, CheckCircle, XCircle, Loader2, Sparkles, Brain, ListChecks, Circle } from 'lucide-react';
 import clsx from 'clsx';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 interface ActionCardProps {
@@ -234,36 +234,103 @@ export function ThinkingBlock({ content, isThinking = false }: ThinkingBlockProp
 }
 
 interface MessageCardProps {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string;
-  timestamp?: string;
+  attachments?: { name: string; mime_type: string; data: string }[];
+  meta?: string;
 }
 
-export function MessageCard({ role, content }: MessageCardProps) {
+function highlightMentions(text: string) {
+  const mentionRegex = /@[\w./-]+/g;
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = mentionRegex.exec(text)) !== null) {
+    const start = match.index;
+    const value = match[0];
+    if (start > lastIndex) {
+      parts.push(text.slice(lastIndex, start));
+    }
+    parts.push(
+      <span
+        key={`mention-${start}-${value}`}
+        className="rounded-md bg-[var(--accent)]/15 px-1 py-0.5 font-mono text-[12px] text-[var(--accent)]"
+      >
+        {value}
+      </span>
+    );
+    lastIndex = start + value.length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts;
+}
+
+function renderMentions(children: React.ReactNode): React.ReactNode {
+  return React.Children.map(children, (child) => {
+    if (typeof child === 'string') {
+      return highlightMentions(child);
+    }
+    if (!React.isValidElement(child)) {
+      return child;
+    }
+    if (typeof child.type === 'string' && (child.type === 'code' || child.type === 'pre')) {
+      return child;
+    }
+    const childProps = child.props as { children?: React.ReactNode };
+    if (childProps?.children) {
+      const typedChild = child as React.ReactElement<{ children?: React.ReactNode }>;
+      return React.cloneElement(typedChild, {
+        children: renderMentions(childProps.children)
+      });
+    }
+    return child;
+  });
+}
+
+export function MessageCard({ role, content, attachments, meta }: MessageCardProps) {
   const isUser = role === 'user';
+  const isSystem = role === 'system';
 
   const sections = !isUser ? splitResponseSections(content) : [];
+  const markdownComponents: Components = {
+    p: ({ children }) => <p>{renderMentions(children)}</p>,
+    li: ({ children }) => <li>{renderMentions(children)}</li>
+  };
 
   return (
     <div className="flex items-start gap-3">
-      <div className={clsx(
+        <div className={clsx(
         "mt-0.5 w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0",
-        isUser ? "bg-[var(--bg-base)]/40 text-zinc-400 border border-[var(--border)]/50" : "bg-[var(--accent)]/15 text-[var(--accent)]"
+        isUser
+          ? "bg-[var(--bg-base)]/40 text-zinc-400 border border-[var(--border)]/50"
+          : isSystem
+            ? "bg-yellow-500/15 text-yellow-300 border border-yellow-500/20"
+            : "bg-[var(--accent)]/15 text-[var(--accent)]"
       )}>
         {isUser ? (
           <span className="text-[10px] font-bold">U</span>
+        ) : isSystem ? (
+          <span className="text-[10px] font-bold">S</span>
         ) : (
           <Sparkles size={12} />
         )}
       </div>
 
       <div className="flex-1 min-w-0">
-        <div className="text-[10px] uppercase tracking-[0.22em] text-zinc-500 font-bold">
-          {isUser ? 'You' : 'Agent'}
+        <div className="flex items-center justify-between gap-4 text-[10px] uppercase tracking-[0.22em] text-zinc-500 font-bold">
+          <span>{isUser ? 'You' : isSystem ? 'System' : 'Agent'}</span>
+          {!isUser && meta && (
+            <span className="text-[9px] tracking-[0.18em] text-zinc-600 font-semibold">{meta}</span>
+          )}
         </div>
-        {isUser ? (
+        {isUser || isSystem ? (
           <div className="mt-1 text-[13px] leading-relaxed text-zinc-300 prose prose-invert prose-sm max-w-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-strong:text-zinc-200">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
               {content}
             </ReactMarkdown>
           </div>
@@ -275,11 +342,23 @@ export function MessageCard({ role, content }: MessageCardProps) {
                   {section.title}
                 </div>
                 <div className="mt-1 text-[13px] leading-relaxed text-zinc-300 prose prose-invert prose-sm max-w-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-strong:text-zinc-200">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                     {section.body}
                   </ReactMarkdown>
                 </div>
               </div>
+            ))}
+          </div>
+        )}
+        {isUser && attachments && attachments.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {attachments.map((attachment, index) => (
+              <img
+                key={`${attachment.name}-${index}`}
+                src={`data:${attachment.mime_type};base64,${attachment.data}`}
+                alt={attachment.name}
+                className="w-20 h-20 rounded-lg object-cover border border-[var(--border)]"
+              />
             ))}
           </div>
         )}
@@ -327,7 +406,7 @@ function splitResponseSections(content: string) {
 }
 
 interface StatusIndicatorProps {
-  status: 'planning' | 'researching' | 'implementing' | 'testing' | 'waiting' | 'done' | 'executing';
+  status: 'planning' | 'researching' | 'implementing' | 'testing' | 'waiting' | 'done' | 'executing' | 'responding';
   message?: string;
 }
 
@@ -339,6 +418,7 @@ export function StatusIndicator({ status, message }: StatusIndicatorProps) {
     executing: { icon: Terminal, color: 'text-cyan-400', bg: 'bg-cyan-900/20', label: 'Executing' },
     testing: { icon: Terminal, color: 'text-purple-400', bg: 'bg-purple-900/20', label: 'Testing' },
     waiting: { icon: CheckCircle, color: 'text-orange-400', bg: 'bg-orange-900/20', label: 'Waiting' },
+    responding: { icon: Sparkles, color: 'text-sky-400', bg: 'bg-sky-900/20', label: 'Responding' },
     done: { icon: CheckCircle, color: 'text-green-400', bg: 'bg-green-900/20', label: 'Done' }
   };
 

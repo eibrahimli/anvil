@@ -154,6 +154,7 @@ impl Orchestrator {
                                 content: result.clone().ok(),
                                 tool_calls: None,
                                 tool_call_id: None,
+                                attachments: None,
                             });
                             ctx.active_task = None;
                         }
@@ -190,7 +191,7 @@ impl Orchestrator {
                     agents.get(&id).cloned().ok_or_else(|| format!("Agent not found: {}", id))?
                 };
                 let mut agent = agent_arc.lock().await;
-                agent.step(Some(description.to_string())).await
+                agent.step(Some(description.to_string()), None).await
             }
             None => {
                 Ok(format!("Task '{}' executed (no agent assigned)", description))

@@ -50,6 +50,10 @@ enum GeminiPart {
     Text { 
         text: String 
     },
+    InlineData {
+        #[serde(rename = "inlineData")]
+        inline_data: GeminiInlineData
+    },
     FunctionCall { 
         #[serde(rename = "functionCall")]
         function_call: GeminiFunctionCall,
@@ -72,6 +76,13 @@ struct GeminiFunctionCall {
 struct GeminiFunctionResponse {
     name: String,
     response: Value,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct GeminiInlineData {
+    #[serde(rename = "mimeType")]
+    mime_type: String,
+    data: String,
 }
 
 #[derive(Serialize)]
@@ -171,6 +182,19 @@ impl ModelAdapter for GeminiAdapter {
                 // If system message, maybe prepend "System Instruction: " ? 
                 // For now just raw text.
                 parts.push(GeminiPart::Text { text });
+            }
+
+            if let Some(attachments) = &m.attachments {
+                if m.role == Role::User {
+                    for attachment in attachments {
+                        parts.push(GeminiPart::InlineData {
+                            inline_data: GeminiInlineData {
+                                mime_type: attachment.mime_type.clone(),
+                                data: attachment.data.clone(),
+                            },
+                        });
+                    }
+                }
             }
 
             if let Some(tool_calls) = m.tool_calls {
