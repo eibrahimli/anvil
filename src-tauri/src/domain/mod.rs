@@ -3,3 +3,4 @@ pub mod ports;
 pub mod agent;
 pub mod context;
 pub mod orchestrator;
+pub mod treesitter;

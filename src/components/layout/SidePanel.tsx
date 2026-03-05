@@ -12,13 +12,19 @@ export function SidePanel() {
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const rafRef = useRef<number | null>(null);
   const pendingWidthRef = useRef<number | null>(null);
+  const previousTabRef = useRef<typeof activeSidebarTab>(activeSidebarTab);
   const [isResizing, setIsResizing] = useState(false);
 
   const clampWidth = useCallback((width: number) => {
+    if (activeSidebarTab === 'workflows') {
+      const minWidth = Math.max(420, Math.floor(window.innerWidth * 0.5));
+      const maxWidth = Math.max(minWidth, Math.floor(window.innerWidth * 0.92));
+      return Math.min(maxWidth, Math.max(minWidth, width));
+    }
     const minWidth = 220;
     const maxWidth = Math.min(480, Math.floor(window.innerWidth * 0.4));
     return Math.min(maxWidth, Math.max(minWidth, width));
-  }, []);
+  }, [activeSidebarTab]);
 
   const handlePointerMove = useCallback((event: PointerEvent) => {
     if (!dragRef.current) return;
@@ -63,6 +69,25 @@ export function SidePanel() {
   }, [clampWidth, setSidebarWidth, sidebarWidth]);
 
   useEffect(() => () => handlePointerUp(), [handlePointerUp]);
+
+  useEffect(() => {
+    if (previousTabRef.current === activeSidebarTab) return;
+    previousTabRef.current = activeSidebarTab;
+    if (!activeSidebarTab) return;
+
+    if (activeSidebarTab === 'workflows') {
+      const suggestedWidth = clampWidth(Math.floor(window.innerWidth * 0.74));
+      if (sidebarWidth < suggestedWidth) {
+        setSidebarWidth(suggestedWidth);
+      }
+      return;
+    }
+
+    const normalized = clampWidth(sidebarWidth);
+    if (normalized !== sidebarWidth) {
+      setSidebarWidth(normalized);
+    }
+  }, [activeSidebarTab, clampWidth, setSidebarWidth, sidebarWidth]);
 
   if (!activeSidebarTab) return null;
 

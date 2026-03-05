@@ -35,7 +35,13 @@ export interface PermissionConfig {
     todoread: PermissionValue;
     todowrite: PermissionValue;
     doom_loop: PermissionValue;
+    "*"? : PermissionAction;
     external_directory?: Record<string, PermissionAction>;
+    [key: string]:
+        | PermissionValue
+        | PermissionAction
+        | Record<string, PermissionAction>
+        | undefined;
 }
 
 interface SettingsState {

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
+import { useStore } from '../store';
 
 interface ConfirmationRequest {
     id: string;
@@ -16,13 +17,48 @@ interface ConfirmationRequest {
 
 interface ConfirmationState {
     pendingRequest: ConfirmationRequest | null;
-    setPendingRequest: (req: ConfirmationRequest | null) => void;
+    pendingBySession: Record<string, ConfirmationRequest[]>;
+    enqueueRequest: (req: ConfirmationRequest) => void;
+    activateSession: (sessionId: string | null) => void;
     resolveConfirmation: (allowed: boolean, always?: boolean, pattern?: string) => Promise<void>;
 }
 
+const pickNextPendingRequest = (
+    pendingBySession: Record<string, ConfirmationRequest[]>,
+    preferredSessionId: string | null
+): ConfirmationRequest | null => {
+    if (preferredSessionId) {
+        const preferredQueue = pendingBySession[preferredSessionId] ?? [];
+        if (preferredQueue.length > 0) {
+            return preferredQueue[0];
+        }
+    }
+
+    for (const queue of Object.values(pendingBySession)) {
+        if (queue.length > 0) {
+            return queue[0];
+        }
+    }
+
+    return null;
+};
+
 export const useConfirmationStore = create<ConfirmationState>((set) => ({
     pendingRequest: null,
-    setPendingRequest: (req) => set({ pendingRequest: req }),
+    pendingBySession: {},
+    enqueueRequest: (req) => set((state) => {
+        const queue = state.pendingBySession[req.session_id] ?? [];
+        const pendingBySession = {
+            ...state.pendingBySession,
+            [req.session_id]: [...queue, req]
+        };
+        const activeSessionId = useStore.getState().sessionId;
+        const pendingRequest = state.pendingRequest ?? pickNextPendingRequest(pendingBySession, activeSessionId);
+        return { pendingBySession, pendingRequest };
+    }),
+    activateSession: (sessionId) => set((state) => {
+        return { pendingRequest: pickNextPendingRequest(state.pendingBySession, sessionId) };
+    }),
     resolveConfirmation: async (allowed, always = false, pattern) => {
         const req = useConfirmationStore.getState().pendingRequest;
         if (!req) return;
@@ -41,7 +77,20 @@ export const useConfirmationStore = create<ConfirmationState>((set) => ({
             // Close modal anyway to prevent UI blocking
             alert(`Failed to confirm action: ${e}`);
         } finally {
-            set({ pendingRequest: null });
+            set((state) => {
+                const queue = state.pendingBySession[req.session_id] ?? [];
+                const nextQueue = queue.filter((item) => item.id !== req.id);
+                const pendingBySession = { ...state.pendingBySession };
+                if (nextQueue.length > 0) {
+                    pendingBySession[req.session_id] = nextQueue;
+                } else {
+                    delete pendingBySession[req.session_id];
+                }
+
+                const activeSessionId = useStore.getState().sessionId;
+                const pendingRequest = pickNextPendingRequest(pendingBySession, activeSessionId);
+                return { pendingRequest, pendingBySession };
+            });
         }
     },
 }));

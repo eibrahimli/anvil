@@ -113,6 +113,44 @@ describe('PermissionsSettings Component', () => {
   })
 
   describe('Tool Permissions Section', () => {
+    it('applies global policy to wildcard and tool defaults', async () => {
+      const setPermissionsMock = vi.fn()
+      vi.mocked(useSettingsStore).mockReturnValue({
+        permissions: {
+          read: { default: 'ask', rules: [] },
+          write: { default: 'ask', rules: [] },
+          edit: { default: 'ask', rules: [] },
+          bash: { default: 'ask', rules: [] },
+          skill: { default: 'allow', rules: [] },
+          list: { default: 'allow', rules: [] },
+          glob: { default: 'allow', rules: [] },
+          grep: { default: 'allow', rules: [] },
+          webfetch: { default: 'allow', rules: [] },
+          task: { default: 'allow', rules: [] },
+          lsp: { default: 'allow', rules: [] },
+          todoread: { default: 'allow', rules: [] },
+          todowrite: { default: 'allow', rules: [] },
+          doom_loop: { default: 'ask', rules: [] },
+        },
+        setPermissions: setPermissionsMock,
+      } as any)
+
+      render(<PermissionsSettings />)
+      await waitFor(() => {
+        expect(screen.getByText('Read Files')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: 'global-allow' }))
+
+      expect(setPermissionsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          '*': 'allow',
+          read: expect.objectContaining({ default: 'allow' }),
+          bash: expect.objectContaining({ default: 'allow' }),
+        })
+      )
+    })
+
     it('renders all tool types', async () => {
       render(<PermissionsSettings />)
       await waitFor(() => {
@@ -222,6 +260,86 @@ describe('PermissionsSettings Component', () => {
   })
 
   describe('Permission Rules Section', () => {
+    it('renders dynamic custom tool permissions and updates their defaults', async () => {
+      const setPermissionsMock = vi.fn()
+      vi.mocked(useSettingsStore).mockReturnValue({
+        permissions: {
+          read: { default: 'ask', rules: [] },
+          write: { default: 'ask', rules: [] },
+          edit: { default: 'ask', rules: [] },
+          bash: { default: 'ask', rules: [] },
+          skill: { default: 'allow', rules: [] },
+          list: { default: 'allow', rules: [] },
+          glob: { default: 'allow', rules: [] },
+          grep: { default: 'allow', rules: [] },
+          webfetch: { default: 'allow', rules: [] },
+          task: { default: 'allow', rules: [] },
+          lsp: { default: 'allow', rules: [] },
+          todoread: { default: 'allow', rules: [] },
+          todowrite: { default: 'allow', rules: [] },
+          doom_loop: { default: 'ask', rules: [] },
+          mcp_sql: { default: 'deny', rules: [] },
+        },
+        setPermissions: setPermissionsMock
+      } as any)
+
+      render(<PermissionsSettings />)
+      await waitFor(() => {
+        expect(screen.getByText('Read Files')).toBeInTheDocument()
+      })
+
+      expect(screen.getByLabelText('custom-default-mcp_sql-allow')).toBeInTheDocument()
+      fireEvent.click(screen.getByLabelText('custom-default-mcp_sql-allow'))
+
+      expect(setPermissionsMock).toHaveBeenCalled()
+      const latestCall = setPermissionsMock.mock.calls[setPermissionsMock.mock.calls.length - 1][0]
+      expect(latestCall).toEqual(
+        expect.objectContaining({
+          mcp_sql: expect.objectContaining({ default: 'allow' })
+        })
+      )
+    })
+
+    it('adds a new custom tool key using global fallback defaults', async () => {
+      const setPermissionsMock = vi.fn()
+      vi.mocked(useSettingsStore).mockReturnValue({
+        permissions: {
+          read: { default: 'ask', rules: [] },
+          write: { default: 'ask', rules: [] },
+          edit: { default: 'ask', rules: [] },
+          bash: { default: 'ask', rules: [] },
+          skill: { default: 'allow', rules: [] },
+          list: { default: 'allow', rules: [] },
+          glob: { default: 'allow', rules: [] },
+          grep: { default: 'allow', rules: [] },
+          webfetch: { default: 'allow', rules: [] },
+          task: { default: 'allow', rules: [] },
+          lsp: { default: 'allow', rules: [] },
+          todoread: { default: 'allow', rules: [] },
+          todowrite: { default: 'allow', rules: [] },
+          doom_loop: { default: 'ask', rules: [] },
+          '*': 'deny'
+        },
+        setPermissions: setPermissionsMock
+      } as any)
+
+      render(<PermissionsSettings />)
+      await waitFor(() => {
+        expect(screen.getByLabelText('custom-tool-key-input')).toBeInTheDocument()
+      })
+
+      fireEvent.change(screen.getByLabelText('custom-tool-key-input'), { target: { value: 'websearch' } })
+      fireEvent.click(screen.getByLabelText('add-custom-tool-key'))
+
+      expect(setPermissionsMock).toHaveBeenCalled()
+      const latestCall = setPermissionsMock.mock.calls[setPermissionsMock.mock.calls.length - 1][0]
+      expect(latestCall).toEqual(
+        expect.objectContaining({
+          websearch: expect.objectContaining({ default: 'deny', rules: [] })
+        })
+      )
+    })
+
     it('shows "No exception rules defined" when rules array is empty', async () => {
       render(<PermissionsSettings />)
       await waitFor(() => {

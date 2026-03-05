@@ -9,7 +9,7 @@ import { ChevronDown, ChevronRight, FileText, Folder, RefreshCw } from "lucide-r
 import clsx from "clsx";
 
 export function FileTree() {
-    const { workspacePath, files, activeFile, setFiles, setActiveFileContent, openFile } = useStore();
+    const { workspacePath, files, activeFile, setFiles, openFileWithContent } = useStore();
     const { setEditorOpen } = useUIStore();
     const { setDiffMode } = useSettingsStore();
     const [expandedDirs, setExpandedDirs] = useState<Record<string, boolean>>({});
@@ -68,8 +68,7 @@ export function FileTree() {
     async function loadFile(path: string) {
         try {
             const content = await invoke<string>("read_file", { path });
-            openFile(path);
-            setActiveFileContent(content);
+            openFileWithContent(path, content);
             setEditorOpen(true);
 
             const status = gitStatusMap[path];

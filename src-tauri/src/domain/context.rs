@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
+use crate::domain::treesitter;
 
 pub struct ContextBuilder;
 
@@ -33,6 +34,13 @@ impl ContextBuilder {
             context.push_str(&format!("{}{}\n", indent, name.display()));
         }
 
+        // Add semantic summary of key entry-point files
+        let summary = Self::build_files_summary(workspace_root);
+        if !summary.is_empty() {
+            context.push_str("\n\nKey Files Summary:\n");
+            context.push_str(&summary);
+        }
+
         // Process AGENTS.md with @file: support
         let agents_file = workspace_root.join("AGENTS.md");
         if agents_file.exists() {
@@ -43,6 +51,74 @@ impl ContextBuilder {
         }
 
         context
+    }
+
+    /// Walk the workspace looking for well-known entry-point files and return a
+    /// brief semantic summary (language + top-level symbols) for each, capped at
+    /// ~2 000 characters total.
+    fn build_files_summary(workspace_root: &Path) -> String {
+        // Candidate relative paths, searched in order of priority.
+        let candidates: &[&str] = &[
+            "src/main.rs",
+            "src/lib.rs",
+            "src-tauri/src/lib.rs",
+            "src-tauri/src/main.rs",
+            "src/main.ts",
+            "src/main.tsx",
+            "src/App.tsx",
+            "src/App.ts",
+            "src/index.ts",
+            "src/index.tsx",
+            "src/index.js",
+            "main.py",
+            "app.py",
+            "src/main.py",
+            "main.go",
+            "cmd/main.go",
+        ];
+
+        let mut output = String::new();
+
+        for rel in candidates {
+            if output.len() >= 2_000 {
+                break;
+            }
+
+            let full_path = workspace_root.join(rel);
+            if !full_path.exists() {
+                continue;
+            }
+
+            let content = match fs::read_to_string(&full_path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            if let Some(summary) = treesitter::summarize_file(&full_path, &content) {
+                let names = if summary.top_level_names.is_empty() {
+                    "(none)".to_string()
+                } else {
+                    summary.top_level_names.join(", ")
+                };
+                let line = format!(
+                    "  [{lang}] {path} — {count} symbols: {names}\n",
+                    lang = summary.language,
+                    path = rel,
+                    count = summary.symbol_count,
+                    names = names,
+                );
+                // Hard-cap at 2000 chars so we don't blow up the context window.
+                let remaining = 2_000_usize.saturating_sub(output.len());
+                if line.len() <= remaining {
+                    output.push_str(&line);
+                } else {
+                    output.push_str(&line[..remaining]);
+                    break;
+                }
+            }
+        }
+
+        output
     }
 
     fn resolve_content(file_path: &Path, root: &Path, visited: &mut HashSet<PathBuf>) -> String {

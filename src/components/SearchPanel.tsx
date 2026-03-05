@@ -22,7 +22,7 @@ export function SearchPanel() {
     const [expandedFiles, setExpandedFiles] = useState<Record<string, boolean>>({});
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     
-    const { workspacePath, openFile, setActiveFileContent } = useStore();
+    const { workspacePath, openFileWithContent } = useStore();
 
     const handleSearch = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
@@ -70,8 +70,7 @@ export function SearchPanel() {
             const basePath = workspacePath.replace(/\/$/, "");
             const absolutePath = `${basePath}/${path}`;
             const content = await invoke<string>("read_file", { path: absolutePath });
-            openFile(absolutePath);
-            setActiveFileContent(content);
+            openFileWithContent(absolutePath, content);
         } catch (e) {
             console.error(e);
         }

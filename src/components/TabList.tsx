@@ -4,13 +4,18 @@ import { invoke } from "@tauri-apps/api/core";
 import clsx from "clsx";
 
 export function TabList() {
-    const { openFiles, activeFile, openFile, closeFile, setActiveFileContent } = useStore();
+    const { openFiles, activeFile, openFileContentMap, setActiveFile, openFileWithContent, closeFile } = useStore();
 
     const handleTabClick = async (path: string) => {
+        const cached = openFileContentMap[path];
+        if (typeof cached === "string") {
+            setActiveFile(path);
+            return;
+        }
+
         try {
             const content = await invoke<string>("read_file", { path });
-            openFile(path);
-            setActiveFileContent(content);
+            openFileWithContent(path, content);
         } catch (e) {
             console.error(e);
         }
@@ -32,6 +37,12 @@ export function TabList() {
                             isActive ? "bg-[var(--bg-surface)] text-[var(--accent)]" : "text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-300"
                         )}
                         onClick={() => handleTabClick(path)}
+                        onAuxClick={(event) => {
+                            if (event.button === 1) {
+                                event.preventDefault();
+                                closeFile(path);
+                            }
+                        }}
                     >
                         <FileText size={14} className={clsx(isActive ? "text-[var(--accent)]" : "text-zinc-600")} />
                         <span className="text-xs truncate flex-1 font-medium">{fileName}</span>

@@ -2,7 +2,9 @@ use crate::domain::agent::Agent;
 use crate::domain::orchestrator::Orchestrator;
 use crate::storage::Storage;
 use crate::terminal::TerminalManager;
+use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
@@ -17,6 +19,9 @@ pub struct AppState {
             >,
         >,
     >,
+    pub pending_oauth: Arc<Mutex<HashMap<String, Value>>>,
+    pub stream_cancels: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+    pub local_session_shares: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     pub storage: Arc<Mutex<Option<Storage>>>,
     pub orchestrator: tokio::sync::Mutex<Option<Orchestrator>>,
     pub config_watchers: Arc<std::sync::Mutex<std::collections::HashSet<std::path::PathBuf>>>,
@@ -28,6 +33,9 @@ impl AppState {
             agents: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             terminal: Mutex::new(TerminalManager::new()),
             pending_confirmations: Arc::new(Mutex::new(HashMap::new())),
+            pending_oauth: Arc::new(Mutex::new(HashMap::new())),
+            stream_cancels: Arc::new(Mutex::new(HashMap::new())),
+            local_session_shares: Arc::new(Mutex::new(HashMap::new())),
             storage: Arc::new(Mutex::new(None)),
             orchestrator: tokio::sync::Mutex::new(None),
             config_watchers: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),

@@ -101,7 +101,7 @@ export function LspCard({ data }: LspCardProps) {
     const server = typeof data.server === "string" ? data.server : "unknown";
     const result = data.result ?? null;
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
-    const { workspacePath, openFile, setActiveFileContent } = useStore();
+    const { workspacePath, openFileWithContent } = useStore();
 
     const locations = useMemo(() => normalizeLocations(result), [result]);
     const diagnostics = useMemo(() => normalizeDiagnostics(result), [result]);
@@ -114,8 +114,7 @@ export function LspCard({ data }: LspCardProps) {
 
         try {
             const content = await invoke<string>("read_file", { path: targetPath });
-            openFile(targetPath);
-            setActiveFileContent(content);
+            openFileWithContent(targetPath, content);
         } catch (error) {
             console.error("Failed to open LSP file:", error);
             setErrorMessage("Failed to open file. Check permissions.");

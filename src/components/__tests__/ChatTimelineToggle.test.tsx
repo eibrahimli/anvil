@@ -31,22 +31,32 @@ describe("Chat timeline toggle", () => {
                 { role: "Assistant", content: "Hello" }
             ]
         });
-        vi.mocked(useProviderStore).mockReturnValue({
+        const providerState = {
             enabledModels: ["gpt-4o"],
             activeModelId: "gpt-4o",
             setActiveModel: vi.fn(),
             activeProviderId: "openai",
-            apiKeys: {}
-        } as any);
-        vi.mocked(useUIStore).mockReturnValue({
+            apiKeys: {},
+            modelRegistry: []
+        };
+        vi.mocked(useProviderStore).mockImplementation((selector?: any) =>
+            typeof selector === "function" ? selector(providerState) : providerState
+        );
+
+        const uiState = {
             activeMode: "build",
             setActiveMode: vi.fn(),
             temperature: "low",
             setTemperature: vi.fn(),
             isEditorOpen: false,
+            setEditorOpen: vi.fn(),
             setSettingsOpen: vi.fn(),
-            isQuestionOpen: false
-        } as any);
+            isQuestionOpen: false,
+            setQuestionOpen: vi.fn()
+        };
+        vi.mocked(useUIStore).mockImplementation((selector?: any) =>
+            typeof selector === "function" ? selector(uiState) : uiState
+        );
     });
 
     it("toggles between stream and timeline views", () => {

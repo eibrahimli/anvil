@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use uuid::Uuid;
 
 /// Default model to use
 pub const DEFAULT_MODEL: &str = "gpt-4";
@@ -165,8 +166,12 @@ pub struct PermissionConfig {
     pub todowrite: ToolPermission,
     #[serde(default)]
     pub doom_loop: ToolPermission,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external_directory: Option<HashMap<String, Action>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "*")]
+    pub global: Option<Action>,
+    #[serde(default, flatten, skip_serializing_if = "HashMap::is_empty")]
+    pub extra_tools: HashMap<String, ToolPermission>,
 }
 
 impl Default for PermissionConfig {
@@ -198,17 +203,80 @@ impl Default for PermissionConfig {
                 rules: Vec::new(),
             },
             external_directory: None,
+            global: None,
+            extra_tools: HashMap::new(),
         }
     }
 }
 
 impl PermissionConfig {
+    fn parse_external_directory(
+        value: serde_json::Value,
+    ) -> Result<Option<HashMap<String, Action>>, String> {
+        match value {
+            serde_json::Value::Null => Ok(None),
+            serde_json::Value::Object(map) => {
+                let mut rules = HashMap::new();
+                for (pattern, action_value) in map {
+                    let trimmed = pattern.trim().to_string();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    let action: Action = serde_json::from_value(action_value)
+                        .map_err(|e| format!("Invalid external_directory action: {}", e))?;
+                    rules.insert(trimmed, action);
+                }
+                if rules.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(rules))
+                }
+            }
+            serde_json::Value::Array(items) => {
+                // Compatibility mode: [{ pattern, action }]
+                let mut rules = HashMap::new();
+                for item in items {
+                    let rule: PermissionRule = serde_json::from_value(item)
+                        .map_err(|e| format!("Invalid external_directory rule: {}", e))?;
+                    let trimmed = rule.pattern.trim().to_string();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    rules.insert(trimmed, rule.action);
+                }
+                if rules.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(rules))
+                }
+            }
+            _ => Err("Invalid external_directory rules: expected object, array, or null".to_string()),
+        }
+    }
+
+    fn normalize_external_directory(&mut self) {
+        if let Some(current) = self.external_directory.take() {
+            let mut normalized = HashMap::new();
+            for (pattern, action) in current {
+                let trimmed = pattern.trim().to_string();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                normalized.insert(trimmed, action);
+            }
+            if !normalized.is_empty() {
+                self.external_directory = Some(normalized);
+            }
+        }
+    }
+
     fn from_json_value(value: serde_json::Value) -> Result<Self, String> {
         match value {
             serde_json::Value::String(_) => {
                 let action: Action = serde_json::from_value(value)
                     .map_err(|e| format!("Invalid permission action: {}", e))?;
                 let mut config = PermissionConfig::default();
+                config.global = Some(action.clone());
                 config.apply_global_default(action, &[]);
                 config.ensure_default_read_rules();
                 Ok(config)
@@ -227,9 +295,7 @@ impl PermissionConfig {
                             );
                         }
                         "external_directory" => {
-                            let rules: HashMap<String, Action> = serde_json::from_value(val)
-                                .map_err(|e| format!("Invalid external_directory rules: {}", e))?;
-                            config.external_directory = Some(rules);
+                            config.external_directory = Self::parse_external_directory(val)?;
                         }
                         "bash" => {
                             config.bash = ToolPermission::from_json_value(val)?;
@@ -287,14 +353,25 @@ impl PermissionConfig {
                             config.doom_loop = ToolPermission::from_json_value(val)?;
                             explicit_tools.push("doom_loop".to_string());
                         }
-                        _ => {}
+                        _ => {
+                            let trimmed = key.trim().to_string();
+                            if trimmed.is_empty() {
+                                continue;
+                            }
+                            config
+                                .extra_tools
+                                .insert(trimmed.clone(), ToolPermission::from_json_value(val)?);
+                            explicit_tools.push(trimmed);
+                        }
                     }
                 }
 
                 if let Some(action) = global_default {
+                    config.global = Some(action.clone());
                     config.apply_global_default(action, &explicit_tools);
                 }
 
+                config.normalize_external_directory();
                 config.ensure_default_read_rules();
                 Ok(config)
             }
@@ -303,6 +380,7 @@ impl PermissionConfig {
     }
 
     fn apply_global_default(&mut self, action: Action, explicit_tools: &[String]) {
+        self.global = Some(action.clone());
         let is_explicit = |tool: &str| explicit_tools.iter().any(|t| t == tool);
         if !is_explicit("bash") {
             self.bash.default = action.clone();
@@ -346,6 +424,39 @@ impl PermissionConfig {
         if !is_explicit("doom_loop") {
             self.doom_loop.default = action;
         }
+    }
+
+    pub fn global_fallback_action(&self) -> Action {
+        self.global.clone().unwrap_or(Action::Ask)
+    }
+
+    pub fn evaluate_dynamic_tool(&self, tool_name: &str, input: &str) -> Action {
+        if let Some(tool_permission) = self.extra_tools.get(tool_name) {
+            return tool_permission.evaluate(input);
+        }
+
+        let mut dynamic_patterns: Vec<(&String, &ToolPermission)> = self
+            .extra_tools
+            .iter()
+            .filter(|(pattern, _)| {
+                pattern.contains('*')
+                    || pattern.contains('?')
+                    || pattern.contains('[')
+                    || pattern.contains(']')
+            })
+            .collect();
+        dynamic_patterns.sort_by(|(left, _), (right, _)| left.cmp(right));
+
+        let mut matched_action: Option<Action> = None;
+        for (pattern, permission) in dynamic_patterns {
+            if let Ok(glob_pattern) = glob::Pattern::new(pattern) {
+                if glob_pattern.matches(tool_name) {
+                    matched_action = Some(permission.evaluate(input));
+                }
+            }
+        }
+
+        matched_action.unwrap_or_else(|| self.global_fallback_action())
     }
 
     fn ensure_default_read_rules(&mut self) {
@@ -443,6 +554,12 @@ pub struct AgentConfig {
     pub provider: Option<String>,
     #[serde(default)]
     pub instructions: Vec<String>,
+    /// Per-agent permission overrides (merged on top of workspace permission config)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permission: Option<PermissionConfig>,
+    /// Allowlist of tool names available to this agent (None = all tools allowed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<String>>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
@@ -661,6 +778,7 @@ pub struct Config {
 pub struct ConfigManager {
     global_config: Option<Config>,
     local_config: Option<Config>,
+    local_permission_defined: bool,
     merged_config: Config,
 }
 
@@ -670,6 +788,7 @@ impl ConfigManager {
         Self {
             global_config: None,
             local_config: None,
+            local_permission_defined: false,
             merged_config: Config::default(),
         }
     }
@@ -680,11 +799,13 @@ impl ConfigManager {
         self.global_config = self.load_global_config()?;
 
         // Load local config
-        self.local_config = if let Some(path) = workspace_path {
+        let (local_config, local_permission_defined) = if let Some(path) = workspace_path {
             self.load_local_config(path)?
         } else {
-            None
+            (None, false)
         };
+        self.local_config = local_config;
+        self.local_permission_defined = local_permission_defined;
 
         // Merge configs (local overrides global)
         self.merged_config = self.merge_configs();
@@ -722,15 +843,21 @@ impl ConfigManager {
     }
 
     /// Load local workspace configuration
-    fn load_local_config(&self, workspace: &Path) -> Result<Option<Config>, ConfigError> {
+    fn load_local_config(&self, workspace: &Path) -> Result<(Option<Config>, bool), ConfigError> {
         let path = Self::local_config_path(workspace);
         if path.exists() {
             let content = fs::read_to_string(&path).map_err(|e| ConfigError::IoError(e.kind()))?;
+            let raw_value: serde_json::Value = serde_json::from_str(&content)
+                .map_err(|e| ConfigError::ParseError(e.to_string()))?;
+            let local_permission_defined = raw_value
+                .as_object()
+                .map(|obj| obj.contains_key("permission"))
+                .unwrap_or(false);
             let config: Config = serde_json::from_str(&content)
                 .map_err(|e| ConfigError::ParseError(e.to_string()))?;
-            Ok(Some(config))
+            Ok((Some(config), local_permission_defined))
         } else {
-            Ok(None)
+            Ok((None, false))
         }
     }
 
@@ -755,7 +882,9 @@ impl ConfigManager {
                 merged.provider.insert(key.clone(), value.clone());
             }
 
-            // Permissions are global only (ignore local overrides)
+            if self.local_permission_defined {
+                merged.permission = Self::merge_permissions(&merged.permission, &local.permission);
+            }
 
             // Merge instructions (local adds to global)
             let mut combined_instructions = merged.instructions.clone();
@@ -823,8 +952,34 @@ impl ConfigManager {
     }
 
     /// Merge two permission configurations
-    #[allow(dead_code)]
     fn merge_permissions(global: &PermissionConfig, local: &PermissionConfig) -> PermissionConfig {
+        let external_directory = {
+            let mut merged = HashMap::new();
+            if let Some(global_rules) = &global.external_directory {
+                for (pattern, action) in global_rules {
+                    let trimmed = pattern.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    merged.insert(trimmed.to_string(), action.clone());
+                }
+            }
+            if let Some(local_rules) = &local.external_directory {
+                for (pattern, action) in local_rules {
+                    let trimmed = pattern.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    merged.insert(trimmed.to_string(), action.clone());
+                }
+            }
+            if merged.is_empty() {
+                None
+            } else {
+                Some(merged)
+            }
+        };
+
         PermissionConfig {
             bash: Self::merge_tool_permissions(&global.bash, &local.bash),
             edit: Self::merge_tool_permissions(&global.edit, &local.edit),
@@ -840,10 +995,22 @@ impl ConfigManager {
             todoread: Self::merge_tool_permissions(&global.todoread, &local.todoread),
             todowrite: Self::merge_tool_permissions(&global.todowrite, &local.todowrite),
             doom_loop: Self::merge_tool_permissions(&global.doom_loop, &local.doom_loop),
-            external_directory: local
-                .external_directory
-                .clone()
-                .or_else(|| global.external_directory.clone()),
+            external_directory,
+            global: local.global.clone().or_else(|| global.global.clone()),
+            extra_tools: {
+                let mut merged = global.extra_tools.clone();
+                for (tool_name, local_permission) in &local.extra_tools {
+                    if let Some(global_permission) = merged.get(tool_name).cloned() {
+                        merged.insert(
+                            tool_name.clone(),
+                            Self::merge_tool_permissions(&global_permission, local_permission),
+                        );
+                    } else {
+                        merged.insert(tool_name.clone(), local_permission.clone());
+                    }
+                }
+                merged
+            },
         }
     }
 
@@ -866,6 +1033,8 @@ impl ConfigManager {
 
     /// Save config to a file
     pub fn save_config(config: &Config, path: &Path) -> Result<(), ConfigError> {
+        Self::validate_config(config)?;
+
         // Ensure parent directory exists
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| ConfigError::IoError(e.kind()))?;
@@ -874,7 +1043,79 @@ impl ConfigManager {
         let json = serde_json::to_string_pretty(config)
             .map_err(|e| ConfigError::ParseError(e.to_string()))?;
 
-        fs::write(path, json).map_err(|e| ConfigError::IoError(e.kind()))?;
+        Self::write_atomic(path, &json)?;
+
+        Ok(())
+    }
+
+    fn write_atomic(path: &Path, content: &str) -> Result<(), ConfigError> {
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("anvil.json");
+        let tmp_name = format!(".{}.tmp-{}", file_name, Uuid::new_v4());
+        let tmp_path = path.with_file_name(tmp_name);
+
+        fs::write(&tmp_path, content).map_err(|e| ConfigError::IoError(e.kind()))?;
+
+        #[cfg(target_os = "windows")]
+        if path.exists() {
+            fs::remove_file(path).map_err(|e| ConfigError::IoError(e.kind()))?;
+        }
+
+        if let Err(error) = fs::rename(&tmp_path, path) {
+            let _ = fs::remove_file(&tmp_path);
+            return Err(ConfigError::IoError(error.kind()));
+        }
+
+        Ok(())
+    }
+
+    fn validate_config(config: &Config) -> Result<(), ConfigError> {
+        let validate_tool = |tool_name: &str, tool: &ToolPermission| -> Result<(), ConfigError> {
+            for (index, rule) in tool.rules.iter().enumerate() {
+                if rule.pattern.trim().is_empty() {
+                    return Err(ConfigError::ParseError(format!(
+                        "permission.{}.rules[{}].pattern cannot be empty",
+                        tool_name, index
+                    )));
+                }
+            }
+            Ok(())
+        };
+
+        validate_tool("bash", &config.permission.bash)?;
+        validate_tool("edit", &config.permission.edit)?;
+        validate_tool("read", &config.permission.read)?;
+        validate_tool("write", &config.permission.write)?;
+        validate_tool("skill", &config.permission.skill)?;
+        validate_tool("list", &config.permission.list)?;
+        validate_tool("glob", &config.permission.glob)?;
+        validate_tool("grep", &config.permission.grep)?;
+        validate_tool("webfetch", &config.permission.webfetch)?;
+        validate_tool("task", &config.permission.task)?;
+        validate_tool("lsp", &config.permission.lsp)?;
+        validate_tool("todoread", &config.permission.todoread)?;
+        validate_tool("todowrite", &config.permission.todowrite)?;
+        validate_tool("doom_loop", &config.permission.doom_loop)?;
+        for (tool_name, permission) in &config.permission.extra_tools {
+            if tool_name.trim().is_empty() {
+                return Err(ConfigError::ParseError(
+                    "permission dynamic tool names cannot be empty".to_string(),
+                ));
+            }
+            validate_tool(tool_name, permission)?;
+        }
+
+        if let Some(external_directory) = &config.permission.external_directory {
+            for pattern in external_directory.keys() {
+                if pattern.trim().is_empty() {
+                    return Err(ConfigError::ParseError(
+                        "permission.external_directory keys cannot be empty".to_string(),
+                    ));
+                }
+            }
+        }
 
         Ok(())
     }
@@ -1006,6 +1247,52 @@ mod tests {
     }
 
     #[test]
+    fn test_permission_external_directory_null_parses() {
+        let json = r#"{
+            "permission": {
+                "read": "allow",
+                "external_directory": null
+            }
+        }"#;
+
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert!(config.permission.external_directory.is_none());
+        assert_eq!(config.permission.read.default, Action::Allow);
+    }
+
+    #[test]
+    fn test_permission_string_shorthand_sets_global_default() {
+        let json = r#"{
+            "permission": "deny"
+        }"#;
+
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.permission.global, Some(Action::Deny));
+        assert_eq!(config.permission.bash.default, Action::Deny);
+        assert_eq!(config.permission.write.default, Action::Deny);
+        assert_eq!(config.permission.evaluate_dynamic_tool("mcp_tool", ""), Action::Deny);
+    }
+
+    #[test]
+    fn test_permission_wildcard_and_dynamic_tool_entries_parse() {
+        let json = r#"{
+            "permission": {
+                "*": "ask",
+                "bash": "deny",
+                "mcp__*": "deny",
+                "mcp__context7": "allow"
+            }
+        }"#;
+
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.permission.global, Some(Action::Ask));
+        assert_eq!(config.permission.bash.default, Action::Deny);
+        assert_eq!(config.permission.evaluate_dynamic_tool("mcp__filesystem", ""), Action::Deny);
+        assert_eq!(config.permission.evaluate_dynamic_tool("mcp__context7", ""), Action::Allow);
+        assert_eq!(config.permission.evaluate_dynamic_tool("unmapped_tool", ""), Action::Ask);
+    }
+
+    #[test]
     fn test_config_save_and_load() {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("anvil.json");
@@ -1053,6 +1340,7 @@ mod tests {
 
         manager.global_config = Some(global);
         manager.local_config = Some(local);
+        manager.local_permission_defined = false;
 
         let merged = manager.merge_configs();
 
@@ -1061,6 +1349,36 @@ mod tests {
         // Both providers should be present
         assert!(merged.provider.contains_key("openai"));
         assert!(merged.provider.contains_key("anthropic"));
+    }
+
+    #[test]
+    fn test_merge_configs_with_local_permission_override() {
+        let mut manager = ConfigManager::new();
+
+        let mut global = Config::default();
+        global.permission.bash.default = Action::Deny;
+        global.permission.external_directory = Some(HashMap::from([(
+            "/global/*".to_string(),
+            Action::Ask,
+        )]));
+
+        let mut local = Config::default();
+        local.permission.bash.default = Action::Allow;
+        local.permission.external_directory = Some(HashMap::from([(
+            "/local/*".to_string(),
+            Action::Allow,
+        )]));
+
+        manager.global_config = Some(global);
+        manager.local_config = Some(local);
+        manager.local_permission_defined = true;
+
+        let merged = manager.merge_configs();
+
+        assert_eq!(merged.permission.bash.default, Action::Allow);
+        let external = merged.permission.external_directory.unwrap();
+        assert_eq!(external.get("/global/*"), Some(&Action::Ask));
+        assert_eq!(external.get("/local/*"), Some(&Action::Allow));
     }
 
     #[test]
@@ -1095,6 +1413,34 @@ mod tests {
         assert_eq!(merged.bash.rules.len(), 2);
         assert_eq!(merged.bash.rules[0].pattern, "git status *");
         assert_eq!(merged.bash.rules[1].pattern, "git push *");
+    }
+
+    #[test]
+    fn test_permission_merge_dynamic_tools() {
+        let mut global_perm = PermissionConfig::default();
+        global_perm.global = Some(Action::Ask);
+        global_perm.extra_tools.insert(
+            "mcp__*".to_string(),
+            ToolPermission {
+                default: Action::Deny,
+                rules: Vec::new(),
+            },
+        );
+
+        let mut local_perm = PermissionConfig::default();
+        local_perm.global = Some(Action::Allow);
+        local_perm.extra_tools.insert(
+            "mcp__context7".to_string(),
+            ToolPermission {
+                default: Action::Allow,
+                rules: Vec::new(),
+            },
+        );
+
+        let merged = ConfigManager::merge_permissions(&global_perm, &local_perm);
+        assert_eq!(merged.global, Some(Action::Allow));
+        assert_eq!(merged.evaluate_dynamic_tool("mcp__filesystem", ""), Action::Deny);
+        assert_eq!(merged.evaluate_dynamic_tool("mcp__context7", ""), Action::Allow);
     }
 
     #[test]

@@ -225,7 +225,7 @@ impl ModelAdapter for AnthropicAdapter {
         }
     }
 
-    async fn stream(&self, req: ChatRequest, tx: Sender<String>) -> ChatResponse {
+    async fn stream(&self, req: ChatRequest, tx: Sender<String>, _cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>) -> ChatResponse {
         // Fallback to non-streaming for now, but simulate stream by sending full content
         let res = self.chat(req).await;
         

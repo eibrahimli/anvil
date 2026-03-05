@@ -3,25 +3,37 @@ import type { ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useStore } from "../store";
+import { useConfirmationStore } from "../stores/confirmation";
 import { useProviderStore } from "../stores/provider";
 import { useUIStore, AgentMode } from "../stores/ui";
 import { Message, Attachment, FileNode } from "../types";
-import { ChevronDown, Send, Sparkles, History as HistoryIcon, Terminal as TermIcon, Zap, Image as ImageIcon, List as ListIcon, Clock, PanelRight, Pencil, X } from "lucide-react";
+import { ChevronDown, Send, Sparkles, History as HistoryIcon, Terminal as TermIcon, Zap, Image as ImageIcon, List as ListIcon, Clock, PanelRight, Pencil, X, Square } from "lucide-react";
 import { QuestionModal } from "./QuestionModal";
 import { TodoIndicator } from "./TodoIndicator";
 import { ActivityStream } from "./ActivityStream";
 import { StatusBar, AgentStatus } from "./StatusBar";
 import clsx from "clsx";
 import { estimateUsage } from "../utils/usage";
+import { mapProviderError, settingsTabLabel } from "../utils/providerErrors";
 
 import { useAgentEvents } from "../hooks/useAgentEvents";
 
+interface LocalSessionSharePayload {
+    shareId: string;
+    url: string;
+    expiresAt: number;
+    oneTime: boolean;
+    format: string;
+}
+
 export function Chat() {
-    const { sessionId, messages, addMessage, workspacePath, setSessionId, appendTokenToLastMessage, updateLastMessageContent, files, setFiles } = useStore();
-    const { enabledModels, activeModelId, setActiveModel, activeProviderId, apiKeys } = useProviderStore();
-    const { activeMode, setActiveMode, temperature, setTemperature, isEditorOpen, setEditorOpen, setSettingsOpen, isQuestionOpen } = useUIStore();
+    const { sessionId, openSessions, sessionMeta, sessionStatus, sessionConfig, setSessionDraft, setSessionStatus, setSessionConfig, closeSessionTab, messages, addMessage, appendTokenToSession, updateLastMessageContentForSession, workspacePath, setSessionId, updateLastMessageContent, files, setFiles } = useStore();
+    const pendingBySession = useConfirmationStore((state) => state.pendingBySession);
+    const { enabledModels, activeModelId, setActiveModel, activeProviderId, apiKeys, modelRegistry, openaiAuthMethod, setOpenAIAuthMethod } = useProviderStore();
+    const { activeMode, setActiveMode, temperature, setTemperature, isEditorOpen, setEditorOpen, openSettingsTab, setOrchestratorOpen, isQuestionOpen } = useUIStore();
     const [input, setInput] = useState("");
-    const [loading, setLoading] = useState(false);
+    const activeSessionStatus = sessionId ? (sessionStatus[sessionId] ?? "idle") : "idle";
+    const isStreaming = activeSessionStatus === "running";
     const [activityView, setActivityView] = useState<'stream' | 'timeline'>("stream");
     const [activeDropdown, setActiveDropdown] = useState<'mode' | 'model' | null>(null);
     const [gitSummary, setGitSummary] = useState<{ staged: number; unstaged: number; untracked: number; conflicted: number; branch?: string; files?: string[] } | null>(null);
@@ -31,16 +43,20 @@ export function Chat() {
     const [showCommandPalette, setShowCommandPalette] = useState(false);
     const [commandIndex, setCommandIndex] = useState(0);
     const [mentionIndex, setMentionIndex] = useState(0);
-    const [sessionStartedAt, setSessionStartedAt] = useState<Date | null>(null);
-    const [lastActivityAt, setLastActivityAt] = useState<Date | null>(null);
+    const [sessionTimeline, setSessionTimeline] = useState<Record<string, { startedAt?: Date; lastActivityAt?: Date; messageTimes: string[] }>>({});
     const [isFetchingFiles, setIsFetchingFiles] = useState(false);
-    const [messageTimes, setMessageTimes] = useState<string[]>([]);
+    const [activeShare, setActiveShare] = useState<LocalSessionSharePayload | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const modeDropdownRef = useRef<HTMLDivElement>(null);
     const modelDropdownRef = useRef<HTMLDivElement>(null);
     const imageInputRef = useRef<HTMLInputElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const textareaOverlayRef = useRef<HTMLDivElement>(null);
+    const lastSessionIdRef = useRef<string | null>(null);
+    const currentTimeline = sessionId ? sessionTimeline[sessionId] : undefined;
+    const sessionStartedAt = currentTimeline?.startedAt ?? null;
+    const lastActivityAt = currentTimeline?.lastActivityAt ?? null;
+    const messageTimes = currentTimeline?.messageTimes ?? [];
     
     useAgentEvents(); // Hook to listen for backend events (file open, etc.)
 
@@ -113,6 +129,18 @@ export function Chat() {
         }, [] as { path: string; name: string; relative: string }[]);
     }, [mentionTokens, workspacePath]);
 
+    const sessionTabs = useMemo(() => {
+        return openSessions.map((id) => {
+            const meta = sessionMeta[id];
+            const label = meta?.name?.trim()
+                ? meta.name.trim()
+                : `Session ${id.slice(0, 8)}`;
+            const status = sessionStatus[id] ?? "idle";
+            const pendingCount = pendingBySession[id]?.length ?? 0;
+            return { id, label, status, pendingCount };
+        });
+    }, [openSessions, pendingBySession, sessionMeta, sessionStatus]);
+
     const highlightedInput = useMemo(() => {
         if (!input) return [" "];
         const mentionRegex = /@[\w./-]+/g;
@@ -146,10 +174,21 @@ export function Chat() {
     const commandOptions = [
         { key: "mode", label: "Mode", detail: "Switch plan/build/research", value: "/mode " },
         { key: "model", label: "Model", detail: "Switch active model", value: "/model " },
+        { key: "models", label: "Models", detail: "Open models workflow", value: "/models" },
         { key: "provider", label: "Provider", detail: "Switch provider", value: "/provider " },
         { key: "temp", label: "Temperature", detail: "low | medium | high", value: "/temp " },
+        { key: "agents", label: "Agents", detail: "Open multi-agent panel", value: "/agents" },
+        { key: "permissions", label: "Permissions", detail: "Open permission controls", value: "/permissions" },
+        { key: "share", label: "Share", detail: "Create local share link", value: "/share" },
+        { key: "unshare", label: "Unshare", detail: "Stop active share link", value: "/unshare" },
         { key: "settings", label: "Settings", detail: "Open settings", value: "/settings" },
         { key: "help", label: "Help", detail: "List commands", value: "/help" }
+    ];
+
+    const templateOptions = [
+        { key: "template_review", label: "Code Review", detail: "Insert review prompt", value: "Review this project for bugs, regressions, and missing tests. Report findings by severity with file paths." },
+        { key: "template_plan", label: "Execution Plan", detail: "Insert planning prompt", value: "Create a concrete implementation plan with phases, tasks, acceptance criteria, and verification steps." },
+        { key: "template_debug", label: "Debug Failure", detail: "Insert debug prompt", value: "Debug this issue step-by-step, identify root cause, implement a fix, and verify with focused tests." }
     ];
 
     const toolOptions = [
@@ -164,9 +203,35 @@ export function Chat() {
         { key: "edit_file", label: "Edit file", detail: "Modify a file", value: "Edit file " }
     ];
 
-    const commandItems = commandOptions.filter((cmd) => cmd.key.includes(slashQuery));
-    const toolItems = toolOptions.filter((cmd) => cmd.key.includes(slashQuery));
-    const slashItems = [...commandItems, ...toolItems];
+    const rankSlashMatch = (item: { key: string; label: string; detail: string }, query: string) => {
+        if (!query) return 100;
+        const q = query.toLowerCase();
+        const key = item.key.toLowerCase();
+        const label = item.label.toLowerCase();
+        const detail = item.detail.toLowerCase();
+        if (key.startsWith(q)) return 0;
+        if (label.startsWith(q)) return 1;
+        if (key.includes(q)) return 2;
+        if (label.includes(q)) return 3;
+        if (detail.includes(q)) return 4;
+        return -1;
+    };
+
+    const filterSlashItems = <T extends { key: string; label: string; detail: string }>(items: T[]) => {
+        return items
+            .map((item) => ({ item, rank: rankSlashMatch(item, slashQuery) }))
+            .filter((entry) => entry.rank >= 0)
+            .sort((left, right) => {
+                if (left.rank !== right.rank) return left.rank - right.rank;
+                return left.item.key.localeCompare(right.item.key);
+            })
+            .map((entry) => entry.item);
+    };
+
+    const commandItems = filterSlashItems(commandOptions);
+    const templateItems = filterSlashItems(templateOptions);
+    const toolItems = filterSlashItems(toolOptions);
+    const slashItems = [...commandItems, ...templateItems, ...toolItems];
 
     const insertMention = (path: string) => {
         const before = input.slice(0, cursorPosition);
@@ -236,30 +301,115 @@ export function Chat() {
     };
 
     useEffect(() => {
-        if (sessionId && !sessionStartedAt) {
-            setSessionStartedAt(new Date());
+        if (sessionId === lastSessionIdRef.current) return;
+        const previousSessionId = lastSessionIdRef.current;
+        if (previousSessionId) {
+            const { openSessions } = useStore.getState();
+            if (openSessions.includes(previousSessionId)) {
+                setSessionDraft(previousSessionId, {
+                    input,
+                    attachments: imageAttachments,
+                    cursorPosition
+                });
+            }
         }
-    }, [sessionId, sessionStartedAt]);
+        lastSessionIdRef.current = sessionId;
+        if (!sessionId) {
+            setInput("");
+            setImageAttachments([]);
+            setCursorPosition(0);
+            return;
+        }
+        const draft = useStore.getState().sessionDrafts[sessionId];
+        if (draft) {
+            setInput(draft.input);
+            setImageAttachments(draft.attachments);
+            setCursorPosition(draft.cursorPosition);
+        } else {
+            setInput("");
+            setImageAttachments([]);
+            setCursorPosition(0);
+        }
+    }, [cursorPosition, imageAttachments, input, sessionId, setSessionDraft]);
 
     useEffect(() => {
-        if (messages.length > 0) {
-            setLastActivityAt(new Date());
-        }
-    }, [messages.length]);
-
-    useEffect(() => {
-        if (messages.length === messageTimes.length) return;
-        setMessageTimes((prev) => {
-            if (messages.length < prev.length) {
-                return prev.slice(0, messages.length);
-            }
-            const next = [...prev];
-            for (let i = prev.length; i < messages.length; i += 1) {
-                next.push(new Date().toLocaleString());
-            }
-            return next;
+        if (!sessionId) return;
+        setSessionDraft(sessionId, {
+            input,
+            attachments: imageAttachments,
+            cursorPosition
         });
-    }, [messageTimes.length, messages.length]);
+    }, [cursorPosition, imageAttachments, input, sessionId, setSessionDraft]);
+
+    useEffect(() => {
+        if (!sessionId) return;
+        setSessionTimeline((prev) => {
+            if (prev[sessionId]) return prev;
+            return {
+                ...prev,
+                [sessionId]: { messageTimes: [] }
+            };
+        });
+    }, [sessionId]);
+
+    useEffect(() => {
+        if (!sessionId) return;
+        if (isQuestionOpen) {
+            setSessionStatus(sessionId, "waiting");
+            return;
+        }
+        if (sessionStatus[sessionId] === "waiting") {
+            setSessionStatus(sessionId, "idle");
+        }
+    }, [isQuestionOpen, sessionId, sessionStatus, setSessionStatus]);
+
+    useEffect(() => {
+        if (!sessionId) return;
+        if (messages.length === 0) return;
+        setSessionTimeline((prev) => {
+            const current = prev[sessionId] ?? { messageTimes: [] };
+            return {
+                ...prev,
+                [sessionId]: {
+                    ...current,
+                    startedAt: current.startedAt ?? new Date(),
+                    lastActivityAt: new Date()
+                }
+            };
+        });
+    }, [messages, sessionId]);
+
+    useEffect(() => {
+        if (!sessionId) return;
+        setSessionTimeline((prev) => {
+            const current = prev[sessionId] ?? { messageTimes: [] };
+            const existingTimes = current.messageTimes ?? [];
+            let nextTimes = existingTimes;
+            if (messages.length < existingTimes.length) {
+                nextTimes = existingTimes.slice(0, messages.length);
+            } else if (messages.length > existingTimes.length) {
+                nextTimes = [...existingTimes];
+                for (let i = existingTimes.length; i < messages.length; i += 1) {
+                    nextTimes.push(new Date().toLocaleString());
+                }
+            }
+            if (nextTimes === existingTimes && current.startedAt) {
+                return prev;
+            }
+            return {
+                ...prev,
+                [sessionId]: {
+                    ...current,
+                    startedAt: current.startedAt ?? (messages.length > 0 ? new Date() : current.startedAt),
+                    messageTimes: nextTimes
+                }
+            };
+        });
+    }, [messages.length, sessionId]);
+
+    useEffect(() => {
+        setActiveShare(null);
+    }, [sessionId]);
 
     useEffect(() => {
         if (mentionQuery === null || !workspacePath) return;
@@ -304,13 +454,71 @@ export function Chat() {
                                     }
                                 }, [mentionIndex, mentionSuggestions.length]);
 
+    const providerForModel = (modelId: string) => {
+        const registry = Array.isArray(modelRegistry) ? modelRegistry : [];
+        const registryMatch = registry.find((model) => model.id === modelId);
+        if (registryMatch?.providerId) return registryMatch.providerId;
+        if (modelId.startsWith("gemini")) return "gemini";
+        if (modelId.startsWith("claude")) return "anthropic";
+        if (modelId.startsWith("gpt") || modelId.startsWith("o1") || modelId.startsWith("o3")) return "openai";
+        if (
+            modelId.startsWith("llama") ||
+            modelId.startsWith("mistral") ||
+            modelId.startsWith("codellama") ||
+            modelId.startsWith("deepseek")
+        ) {
+            return "ollama";
+        }
+        return "openai";
+    };
+
+    const currentSessionConfig = useMemo(() => {
+        if (!sessionId) return null;
+        return sessionConfig[sessionId] ?? null;
+    }, [sessionConfig, sessionId]);
+
+    const effectiveMode = currentSessionConfig?.mode ?? activeMode;
+    const effectiveModelId = currentSessionConfig?.modelId ?? activeModelId;
+    const effectiveProviderId = currentSessionConfig?.providerId ?? providerForModel(effectiveModelId);
+
+    const ensureSessionConfig = (overrides?: Partial<{ mode: AgentMode; modelId: string; providerId: string }>) => {
+        if (!sessionId) return;
+        const base = currentSessionConfig ?? {
+            mode: activeMode,
+            modelId: activeModelId,
+            providerId: activeProviderId
+        };
+        setSessionConfig(sessionId, {
+            ...base,
+            ...overrides
+        });
+    };
+
+    useEffect(() => {
+        if (!sessionId) return;
+        if (!sessionConfig[sessionId]) {
+            setSessionConfig(sessionId, {
+                mode: activeMode,
+                modelId: activeModelId,
+                providerId: activeProviderId
+            });
+            return;
+        }
+        if (effectiveModelId !== activeModelId || effectiveProviderId !== activeProviderId) {
+            setActiveModel(effectiveProviderId, effectiveModelId);
+        }
+        if (effectiveMode !== activeMode) {
+            setActiveMode(effectiveMode);
+        }
+    }, [activeMode, activeModelId, activeProviderId, effectiveMode, effectiveModelId, effectiveProviderId, sessionConfig, sessionId, setActiveModel, setActiveMode, setSessionConfig]);
+
     const supportsImages = useMemo(() => {
-        if (activeProviderId === "gemini") return activeModelId.startsWith("gemini");
-        if (activeProviderId === "openai") {
-            return activeModelId.startsWith("gpt-4o") || activeModelId.startsWith("gpt-4.1");
+        if (effectiveProviderId === "gemini") return effectiveModelId.startsWith("gemini");
+        if (effectiveProviderId === "openai") {
+            return effectiveModelId.startsWith("gpt-4o") || effectiveModelId.startsWith("gpt-4.1");
         }
         return false;
-    }, [activeModelId, activeProviderId]);
+    }, [effectiveModelId, effectiveProviderId]);
 
     // Close dropdowns when clicking outside
     useEffect(() => {
@@ -332,7 +540,7 @@ export function Chat() {
         if (scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
-    }, [messages, loading]);
+    }, [messages, isStreaming]);
 
     useEffect(() => {
         let timer: number | null = null;
@@ -378,7 +586,7 @@ export function Chat() {
         detail?: string;
     };
 
-    const usage = useMemo(() => estimateUsage(messages, activeModelId), [messages, activeModelId]);
+    const usage = useMemo(() => estimateUsage(messages, effectiveModelId), [messages, effectiveModelId]);
     const contextMeta = useMemo(() => {
         const sessionLabel = workspacePath ? workspacePath.split("/").pop() : "No workspace";
         const rawMessages = messages.slice(-12).map((msg, idx) => {
@@ -393,17 +601,17 @@ export function Chat() {
             sessionLabel,
             sessionId: sessionId ? sessionId.slice(0, 8) : undefined,
             workspace: workspacePath || undefined,
-            provider: activeProviderId,
-            model: activeModelId,
-            mode: activeMode,
+            provider: effectiveProviderId,
+            model: effectiveModelId,
+            mode: effectiveMode,
             sessionStarted: sessionStartedAt ? sessionStartedAt.toLocaleString() : undefined,
             lastActivity: lastActivityAt ? lastActivityAt.toLocaleString() : undefined,
             rawMessages
         };
-    }, [activeMode, activeModelId, activeProviderId, lastActivityAt, messageTimes, messages, sessionId, sessionStartedAt, workspacePath]);
+    }, [effectiveMode, effectiveModelId, effectiveProviderId, lastActivityAt, messageTimes, messages, sessionId, sessionStartedAt, workspacePath]);
 
     const statusInfo = useMemo<StatusInfo>(() => {
-        const modeLabel = activeMode.charAt(0).toUpperCase() + activeMode.slice(1);
+        const modeLabel = effectiveMode.charAt(0).toUpperCase() + effectiveMode.slice(1);
         const modeDetail = `Mode: ${modeLabel}`;
 
         if (isQuestionOpen) {
@@ -414,7 +622,7 @@ export function Chat() {
             };
         }
 
-        if (loading) {
+        if (isStreaming) {
             const recentUserText = messages
                 .filter((msg) => msg.role === "User")
                 .slice(-3)
@@ -428,7 +636,7 @@ export function Chat() {
             const recentText = `${recentUserText} ${recentAssistantText}`.trim();
 
             const hasTestIntent =
-                activeMode === "build" &&
+                effectiveMode === "build" &&
                 /\b(?:npm|pnpm|yarn)\s+test\b|\bcargo\s+test\b|\bpytest\b|\bvitest\b|\bjest\b|\bgo\s+test\b/i.test(recentText);
 
             const commandIntentPatterns: RegExp[] = [
@@ -521,7 +729,7 @@ export function Chat() {
                 };
             }
 
-            if (activeMode === "plan") {
+            if (effectiveMode === "plan") {
                 return {
                     status: "planning",
                     message: "Analyzing problem...",
@@ -529,7 +737,7 @@ export function Chat() {
                 };
             }
 
-            if (activeMode === "research") {
+            if (effectiveMode === "research") {
                 return {
                     status: "researching",
                     message: "Searching documentation...",
@@ -556,26 +764,12 @@ export function Chat() {
 
         return {
             status: "done",
-            message: "Task completed",
+            message: "Ready",
             detail: modeDetail
         };
-    }, [activeMode, isQuestionOpen, loading, messages]);
+    }, [effectiveMode, isQuestionOpen, isStreaming, messages]);
 
     const availableModels = enabledModels; 
-
-    const providerForModel = (modelId: string) => {
-        if (modelId.startsWith("gemini")) return "gemini";
-        if (modelId.startsWith("claude")) return "anthropic";
-        if (
-            modelId.startsWith("llama") ||
-            modelId.startsWith("mistral") ||
-            modelId.startsWith("codellama") ||
-            modelId.startsWith("deepseek")
-        ) {
-            return "ollama";
-        }
-        return "openai";
-    };
 
     const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
         const selected = Array.from(event.target.files || []);
@@ -620,7 +814,23 @@ export function Chat() {
         setImageAttachments([]);
     };
 
-    const handleSlashCommand = (raw: string) => {
+    const resolveProviderFailure = (error: unknown) => {
+        const mapped = mapProviderError(error);
+        if (!mapped) return null;
+        if (mapped.fixTab) {
+            openSettingsTab(mapped.fixTab);
+        }
+        const suffix = mapped.fixTab ? ` Opened Settings → ${settingsTabLabel(mapped.fixTab)}.` : "";
+        return `${mapped.message}${suffix}`;
+    };
+
+    const stripSystemReminderArtifacts = (content: string) => {
+        return content
+            .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, "")
+            .trim();
+    };
+
+    const handleSlashCommand = async (raw: string) => {
         const trimmed = raw.trim();
         if (!trimmed.startsWith("/")) return false;
 
@@ -633,15 +843,29 @@ export function Chat() {
         if (normalized === "help") {
             addMessage({
                 role: "System",
-                content: "Commands:\n- /mode plan|build|research\n- /model <id>\n- /provider <openai|gemini|anthropic|ollama>\n- /temp low|medium|high\n- /settings"
+                content: "Commands:\n- /mode plan|build|research\n- /model <id>\n- /models\n- /provider <openai|gemini|anthropic|ollama>\n- /temp low|medium|high\n- /agents\n- /permissions\n- /share\n- /unshare\n- /settings"
             });
             setInput("");
             return true;
         }
 
         if (normalized === "settings") {
-            setSettingsOpen(true);
+            openSettingsTab("general");
             addMessage({ role: "System", content: "Opened settings." });
+            setInput("");
+            return true;
+        }
+
+        if (normalized === "agents") {
+            setOrchestratorOpen(true);
+            addMessage({ role: "System", content: "Opened multi-agent orchestration." });
+            setInput("");
+            return true;
+        }
+
+        if (normalized === "permissions") {
+            openSettingsTab("permissions");
+            addMessage({ role: "System", content: "Opened Settings → Permissions." });
             setInput("");
             return true;
         }
@@ -655,6 +879,9 @@ export function Chat() {
             }
             if (mode === "plan" || mode === "build" || mode === "research") {
                 setActiveMode(mode as AgentMode);
+                if (sessionId) {
+                    ensureSessionConfig({ mode: mode as AgentMode });
+                }
                 addMessage({ role: "System", content: `Mode set to ${mode}.` });
             } else {
                 addMessage({ role: "System", content: "Unknown mode. Use /mode plan|build|research." });
@@ -680,7 +907,16 @@ export function Chat() {
             return true;
         }
 
-        if (normalized === "model") {
+        if (normalized === "models") {
+            if (!value) {
+                openSettingsTab("models");
+                addMessage({ role: "System", content: `Opened Settings → Models. Active models: ${enabledModels.join(", ")}` });
+                setInput("");
+                return true;
+            }
+        }
+
+        if (normalized === "model" || normalized === "models") {
             if (!value) {
                 addMessage({ role: "System", content: `Available models: ${enabledModels.join(", ")}` });
                 setInput("");
@@ -695,6 +931,9 @@ export function Chat() {
             }
             const provider = providerForModel(match);
             setActiveModel(provider, match);
+            if (sessionId) {
+                ensureSessionConfig({ modelId: match, providerId: provider });
+            }
             addMessage({ role: "System", content: `Model set to ${match}.` });
             setInput("");
             return true;
@@ -714,7 +953,65 @@ export function Chat() {
                 return true;
             }
             setActiveModel(provider, providerModels[0]);
+            if (sessionId) {
+                ensureSessionConfig({ modelId: providerModels[0], providerId: provider });
+            }
             addMessage({ role: "System", content: `Provider set to ${provider}.` });
+            setInput("");
+            return true;
+        }
+
+        if (normalized === "share") {
+            if (!sessionId) {
+                addMessage({ role: "System", content: "No active session to share. Start or open a session first." });
+                setInput("");
+                return true;
+            }
+            try {
+                if (activeShare?.shareId) {
+                    await invoke("stop_local_session_share", { shareId: activeShare.shareId }).catch(() => undefined);
+                }
+                const payload = await invoke<LocalSessionSharePayload>("start_local_session_share", {
+                    sessionId,
+                    format: "json",
+                    allowLan: false,
+                    ttlSeconds: 900,
+                    redactions: {
+                        workspacePath: true,
+                        attachments: true,
+                        toolArguments: true
+                    }
+                });
+                setActiveShare(payload);
+                try {
+                    await navigator.clipboard.writeText(payload.url);
+                } catch (_) {
+                    // Clipboard can fail in some environments.
+                }
+                const expiresAt = Number.isFinite(payload.expiresAt)
+                    ? new Date(payload.expiresAt).toLocaleTimeString()
+                    : "soon";
+                addMessage({ role: "System", content: `Local share ready: ${payload.url}\nExpires at ${expiresAt}.` });
+            } catch (error) {
+                addMessage({ role: "System", content: `Failed to create share link: ${String(error)}` });
+            }
+            setInput("");
+            return true;
+        }
+
+        if (normalized === "unshare") {
+            if (!activeShare?.shareId) {
+                addMessage({ role: "System", content: "No active share link to stop." });
+                setInput("");
+                return true;
+            }
+            try {
+                await invoke("stop_local_session_share", { shareId: activeShare.shareId });
+                addMessage({ role: "System", content: "Stopped active local share link." });
+            } catch (error) {
+                addMessage({ role: "System", content: `Failed to stop share link: ${String(error)}` });
+            }
+            setActiveShare(null);
             setInput("");
             return true;
         }
@@ -726,56 +1023,149 @@ export function Chat() {
 
     async function handleSend() {
         if (!input.trim()) return;
-        if (handleSlashCommand(input)) return;
+        if (await handleSlashCommand(input)) return;
 
         if (imageAttachments.length > 0 && !supportsImages) {
             addMessage({ role: "System", content: "Image upload is not supported for the active model. Please switch to a vision-capable model." });
             return;
         }
 
+        if (!effectiveModelId) {
+            addMessage({ role: "System", content: "No models configured. Open Settings → Models and sync or add a model." });
+            openSettingsTab("models");
+            return;
+        }
+
         let currentSessionId = sessionId;
+        let authToken = apiKeys[effectiveProviderId];
+
+        if (
+            effectiveProviderId === "openai" &&
+            openaiAuthMethod === "oauth" &&
+            effectiveModelId.trim().toLowerCase() === "default"
+        ) {
+            openSettingsTab("models");
+            addMessage({
+                role: "System",
+                content: "Model \"default\" is not supported for ChatGPT Codex accounts. Pick an explicit model in Settings → Models (opened now)."
+            });
+            return;
+        }
+
+        if (effectiveProviderId === "openai" && openaiAuthMethod === "oauth") {
+            try {
+                const oauthStatus = await invoke<Record<string, { connected: boolean; expiresAt?: number }>>("oauth_token_status");
+                const chatgptStatus = oauthStatus?.chatgpt;
+                if (!chatgptStatus?.connected) {
+                    openSettingsTab("oauth");
+                    addMessage({
+                        role: "System",
+                        content: "OpenAI OAuth is not connected. Reconnect in Settings → OAuth (opened now)."
+                    });
+                    return;
+                }
+                if (chatgptStatus.expiresAt && Date.now() > chatgptStatus.expiresAt) {
+                    openSettingsTab("oauth");
+                    addMessage({
+                        role: "System",
+                        content: "OpenAI OAuth token is expired. Reconnect in Settings → OAuth (opened now)."
+                    });
+                    return;
+                }
+            } catch (_) {
+                // Best-effort preflight: if status lookup fails, continue with token fetch below.
+            }
+        }
+
+        if (effectiveProviderId === "openai" && (openaiAuthMethod === "oauth" || !authToken)) {
+            try {
+                const oauthToken = await invoke<string>("oauth_get_access_token", { providerId: "chatgpt" });
+                if (oauthToken) {
+                    authToken = oauthToken;
+                    if (openaiAuthMethod !== "oauth") {
+                        setOpenAIAuthMethod("oauth");
+                    }
+                }
+            } catch (error) {
+                if (openaiAuthMethod === "oauth") {
+                    addMessage({ role: "System", content: "OpenAI OAuth not connected. Connect it in Settings → OAuth or switch to API key." });
+                    openSettingsTab("oauth");
+                    return;
+                }
+            }
+        }
+
+        // Ollama doesn't require an API key
+        if (!authToken && effectiveProviderId !== 'ollama') {
+            addMessage({ role: "System", content: "AI Provider not connected. Please go to Settings (Gear icon) -> Providers to enter your API key." });
+            openSettingsTab(effectiveProviderId === "openai" && openaiAuthMethod === "oauth" ? "oauth" : "providers");
+            return;
+        }
+
+        if (
+            authToken &&
+            effectiveProviderId !== "ollama" &&
+            /(your_|replace|changeme|paste[-_\s]?api[-_\s]?key|example)/i.test(authToken)
+        ) {
+            addMessage({
+                role: "System",
+                content: "Provider credential looks like a placeholder value. Update it in Settings → Providers (opened now)."
+            });
+            openSettingsTab("providers");
+            return;
+        }
 
         // Auto-create session if missing
         if (!currentSessionId) {
-            const key = apiKeys[activeProviderId];
-            // Ollama doesn't require an API key
-            if (!key && activeProviderId !== 'ollama') {
-                addMessage({ role: "System", content: "AI Provider not connected. Please go to Settings (Gear icon) -> Providers to enter your API key." });
-                setSettingsOpen(true);
-                return;
-            }
             if (!workspacePath) {
                 // Try to get CWD first if path is empty
                 try {
                     const cwd = await invoke<string>("get_cwd");
                     // Continue with cwd
-                    setLoading(true);
                     const sid = await invoke<string>("create_session", {
                         workspacePath: cwd,
-                        apiKey: key || '',  // Empty string for Ollama
-                        provider: activeProviderId,
-                        modelId: activeModelId
+                        apiKey: authToken || '',  // Empty string for Ollama
+                        provider: effectiveProviderId,
+                        modelId: effectiveModelId
                     });
                     setSessionId(sid);
                     currentSessionId = sid;
+                    setSessionConfig(sid, {
+                        mode: effectiveMode,
+                        modelId: effectiveModelId,
+                        providerId: effectiveProviderId
+                    });
                 } catch (e) {
+                    const guidance = resolveProviderFailure(e);
+                    if (guidance) {
+                        addMessage({ role: "System", content: guidance });
+                        return;
+                    }
                     addMessage({ role: "System", content: "Please select a workspace folder first (use the + button in the sidebar)." });
                     return;
                 }
             } else {
-                setLoading(true);
                 try {
                     const sid = await invoke<string>("create_session", {
                         workspacePath,
-                        apiKey: key || '',  // Empty string for Ollama
-                        provider: activeProviderId,
-                        modelId: activeModelId
+                        apiKey: authToken || '',  // Empty string for Ollama
+                        provider: effectiveProviderId,
+                        modelId: effectiveModelId
                     });
                     setSessionId(sid);
                     currentSessionId = sid;
+                    setSessionConfig(sid, {
+                        mode: effectiveMode,
+                        modelId: effectiveModelId,
+                        providerId: effectiveProviderId
+                    });
                 } catch (e) {
+                    const guidance = resolveProviderFailure(e);
+                    if (guidance) {
+                        addMessage({ role: "System", content: guidance });
+                        return;
+                    }
                     addMessage({ role: "System", content: `Failed to initialize agent: ${e}` });
-                    setLoading(false);
                     return;
                 }
             }
@@ -785,17 +1175,28 @@ export function Chat() {
         const userMsg: Message = { role: "User", content: input, attachments: attachments.length ? attachments : undefined };
         addMessage(userMsg);
         setInput("");
-        setLoading(true);
 
         // Add empty assistant message for streaming
         addMessage({ role: "Assistant", content: "" });
 
         let unlisten: (() => void) | undefined;
+        let streamFailed = false;
 
         try {
+            if (currentSessionId) {
+                ensureSessionConfig({
+                    mode: effectiveMode,
+                    modelId: effectiveModelId,
+                    providerId: effectiveProviderId
+                });
+                setSessionStatus(currentSessionId, "running");
+            }
             // Setup listener
-            const listener = await listen<string>("chat-token", (event) => {
-                appendTokenToLastMessage(event.payload);
+            const listener = await listen<{ session_id: string; token: string }>("chat-token", (event) => {
+                if (event.payload.session_id !== currentSessionId) {
+                    return;
+                }
+                appendTokenToSession(event.payload.session_id, event.payload.token);
             });
             unlisten = listener;
 
@@ -804,38 +1205,82 @@ export function Chat() {
             const response = await invoke<string>("stream_chat", {
                 sessionId: currentSessionId,
                 message: userMsg.content,
-                modelId: activeModelId,
-                apiKey: apiKeys[activeProviderId],
-                mode: activeMode,
+                modelId: effectiveModelId,
+                apiKey: authToken,
+                mode: effectiveMode,
                 temperature: tempValue,
                 attachments
             });
-            
-            if (response && response.trim().length > 0) {
-                 updateLastMessageContent(response);
+
+            const sanitizedResponse = stripSystemReminderArtifacts(response || "");
+            if (sanitizedResponse.trim().length > 0) {
+                const mappedStreamError = mapProviderError(sanitizedResponse);
+                const resolvedContent = mappedStreamError
+                    ? `${mappedStreamError.message}${mappedStreamError.fixTab ? ` Opened Settings → ${settingsTabLabel(mappedStreamError.fixTab)}.` : ""}`
+                    : sanitizedResponse;
+
+                if (mappedStreamError?.fixTab) {
+                    openSettingsTab(mappedStreamError.fixTab);
+                    streamFailed = true;
+                    if (currentSessionId) {
+                        setSessionStatus(currentSessionId, "error");
+                    }
+                }
+
+                if (currentSessionId) {
+                    updateLastMessageContentForSession(currentSessionId, resolvedContent);
+                } else {
+                    updateLastMessageContent(resolvedContent);
+                }
             }
         } catch (e) {
+            streamFailed = true;
             const errorMsg = String(e);
             // If session not found, clear it and retry
             if (errorMsg.includes("Session not found")) {
                 console.log("Session not found in backend, clearing and retrying...");
-                setSessionId(null);
+                if (currentSessionId) {
+                    closeSessionTab(currentSessionId);
+                } else {
+                    setSessionId(null);
+                }
                 addMessage({ role: "System", content: "Session expired. Please send your message again to create a new session." });
             } else {
-                addMessage({ role: "System", content: `Error: ${e}` });
+                if (currentSessionId) {
+                    setSessionStatus(currentSessionId, "error");
+                }
+                const guidance = resolveProviderFailure(e);
+                if (guidance) {
+                    addMessage({ role: "System", content: guidance });
+                } else {
+                    addMessage({ role: "System", content: `Error: ${e}` });
+                }
             }
         } finally {
             if (unlisten) unlisten();
-            setLoading(false);
             clearImageAttachments();
             // Auto-save session after chat completes
             if (currentSessionId) {
                 invoke('save_session', { sessionId: currentSessionId }).catch(err => {
                     console.error('Failed to auto-save session:', err);
                 });
+                if (!streamFailed) {
+                    setSessionStatus(currentSessionId, "idle");
+                }
             }
         }
     }
+
+    const handleStop = async () => {
+        if (!sessionId) return;
+        try {
+            await invoke("stop_stream", { sessionId });
+        } catch (error) {
+            console.error("Failed to stop stream:", error);
+        } finally {
+            setSessionStatus(sessionId, "idle");
+        }
+    };
 
     return (
         <div className="flex flex-col h-full bg-[var(--bg-base)] text-[var(--text-primary)] font-sans relative">
@@ -910,6 +1355,65 @@ export function Chat() {
                 </div>
             </div>
 
+            {sessionTabs.length > 0 && (
+                <div className="border-b border-[var(--border)] bg-[var(--bg-base)]/40 px-6 py-2">
+                    <div className="flex items-center gap-2 overflow-x-auto">
+                        {sessionTabs.map((tab) => {
+                            const isActive = tab.id === sessionId;
+                            return (
+                                <div
+                                    key={tab.id}
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() => setSessionId(tab.id)}
+                                    onKeyDown={(event) => {
+                                        if (event.key === "Enter" || event.key === " ") {
+                                            event.preventDefault();
+                                            setSessionId(tab.id);
+                                        }
+                                    }}
+                                    className={clsx(
+                                        "flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-medium transition-colors",
+                                        isActive
+                                            ? "bg-[var(--accent)]/15 text-[var(--accent)] border-[var(--accent)]/40"
+                                            : "bg-[var(--bg-elevated)]/60 text-zinc-300 border-[var(--border)] hover:text-[var(--text-primary)]"
+                                    )}
+                                >
+                                    {tab.status !== "idle" && (
+                                        <span
+                                            className={clsx(
+                                                "h-1.5 w-1.5 rounded-full",
+                                                tab.status === "running" && "bg-emerald-400 animate-pulse",
+                                                tab.status === "waiting" && "bg-yellow-400",
+                                                tab.status === "error" && "bg-red-400"
+                                            )}
+                                        />
+                                    )}
+                                    {tab.pendingCount > 0 && (
+                                        <span className="rounded-full bg-yellow-500/20 px-1.5 py-0.5 text-[9px] font-bold text-yellow-300">
+                                            {tab.pendingCount}
+                                        </span>
+                                    )}
+                                    <span className="max-w-[160px] truncate">{tab.label}</span>
+                                    <button
+                                        type="button"
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            invoke("stop_stream", { sessionId: tab.id }).catch(() => undefined);
+                                            closeSessionTab(tab.id);
+                                        }}
+                                        className="rounded-full p-1 text-zinc-400 hover:text-zinc-200 hover:bg-[var(--bg-base)]/60"
+                                        title="Close session"
+                                    >
+                                        <X size={12} />
+                                    </button>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
             {/* Activity Stream Area */}
             <StatusBar 
                 status={statusInfo.status}
@@ -930,9 +1434,9 @@ export function Chat() {
 
                     <ActivityStream 
                         messages={messages} 
-                        isLoading={loading}
+                        isLoading={isStreaming}
                         view={activityView}
-                        meta={{ mode: activeMode, model: activeModelId }}
+                        meta={{ mode: effectiveMode, model: effectiveModelId }}
                     />
                 </div>
             </div>
@@ -1124,11 +1628,34 @@ export function Chat() {
                                             <span className="text-[10px] text-zinc-500">{cmd.detail}</span>
                                         </button>
                                     ))}
+                                    {showCommandPalette && templateItems.length > 0 && (
+                                        <div className="px-4 py-2 text-[9px] uppercase tracking-[0.2em] text-zinc-600">Templates</div>
+                                    )}
+                                    {showCommandPalette && templateItems.map((cmd, index) => {
+                                        const globalIndex = commandItems.length + index;
+                                        return (
+                                            <button
+                                                key={cmd.key}
+                                                type="button"
+                                                onMouseDown={(event) => event.preventDefault()}
+                                                onClick={() => insertCommand(cmd.value)}
+                                                className={clsx(
+                                                    "w-full text-left px-4 py-2 text-xs flex items-center justify-between",
+                                                    globalIndex === commandIndex
+                                                        ? "bg-[var(--bg-elevated)] text-[var(--text-primary)]"
+                                                        : "text-zinc-300 hover:bg-[var(--bg-elevated)]"
+                                                )}
+                                            >
+                                                <span className="font-mono">{cmd.label}</span>
+                                                <span className="text-[10px] text-zinc-500">{cmd.detail}</span>
+                                            </button>
+                                        );
+                                    })}
                                     {showCommandPalette && toolItems.length > 0 && (
                                         <div className="px-4 py-2 text-[9px] uppercase tracking-[0.2em] text-zinc-600">Tools</div>
                                     )}
                                     {showCommandPalette && toolItems.map((cmd, index) => {
-                                        const globalIndex = commandItems.length + index;
+                                        const globalIndex = commandItems.length + templateItems.length + index;
                                         return (
                                             <button
                                                 key={cmd.key}
@@ -1176,7 +1703,7 @@ export function Chat() {
                                     )}
                                 </div>
                                 <div className="px-4 py-2 border-t border-[var(--border)] text-[10px] text-zinc-500 bg-[var(--bg-base)]">
-                                    {showCommandPalette ? "Type to filter commands." : "Type to filter files."}
+                                    {showCommandPalette ? "Type to filter. Enter inserts selection." : "Type to filter files."}
                                 </div>
                             </div>
                         )}
@@ -1189,13 +1716,13 @@ export function Chat() {
                                     onClick={() => setActiveDropdown(activeDropdown === 'mode' ? null : 'mode')}
                                     className={clsx(
                                         "flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold tracking-tighter uppercase transition-colors",
-                                        activeMode === 'build' ? "bg-[var(--accent)]/10 text-[var(--accent)] border-[var(--accent)]/20" : 
-                                        activeMode === 'plan' ? "bg-blue-500/10 text-blue-500 border-blue-500/20" : 
+                                        effectiveMode === 'build' ? "bg-[var(--accent)]/10 text-[var(--accent)] border-[var(--accent)]/20" : 
+                                        effectiveMode === 'plan' ? "bg-blue-500/10 text-blue-500 border-blue-500/20" : 
                                         "bg-green-500/10 text-green-500 border-green-500/20"
                                     )}
                                 >
-                                    {activeMode === 'build' ? <Zap size={12} /> : activeMode === 'plan' ? <Sparkles size={12} /> : <TermIcon size={12} />}
-                                    {activeMode}
+                                    {effectiveMode === 'build' ? <Zap size={12} /> : effectiveMode === 'plan' ? <Sparkles size={12} /> : <TermIcon size={12} />}
+                                    {effectiveMode}
                                     <ChevronDown size={12} />
                                 </button>
                                 {activeDropdown === 'mode' && (
@@ -1205,11 +1732,14 @@ export function Chat() {
                                                 key={mode}
                                                 onClick={() => {
                                                     setActiveMode(mode);
+                                                    if (sessionId) {
+                                                        ensureSessionConfig({ mode });
+                                                    }
                                                     setActiveDropdown(null);
                                                 }}
                                                 className={clsx(
                                                     "w-full text-left px-4 py-2.5 text-xs transition-colors capitalize flex items-center gap-2",
-                                                    activeMode === mode ? "text-[var(--text-primary)] bg-[var(--bg-elevated)]" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                                                    effectiveMode === mode ? "text-[var(--text-primary)] bg-[var(--bg-elevated)]" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                                                 )}
                                             >
                                                 {mode}
@@ -1225,7 +1755,7 @@ export function Chat() {
                                     className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-[var(--accent)]/10 hover:bg-[var(--accent)]/20 text-[11px] font-bold text-[var(--accent)] tracking-tighter uppercase transition-colors"
                                 >
                                     <Sparkles size={12} />
-                                    {activeModelId}
+                                    {effectiveModelId}
                                     <ChevronDown size={12} />
                                 </button>
                                 {activeDropdown === 'model' && (
@@ -1236,12 +1766,16 @@ export function Chat() {
                                                 <button
                                                     key={model}
                                                     onClick={() => {
-                                                        setActiveModel(activeProviderId, model);
+                                                        const provider = providerForModel(model);
+                                                        setActiveModel(provider, model);
+                                                        if (sessionId) {
+                                                            ensureSessionConfig({ modelId: model, providerId: provider });
+                                                        }
                                                         setActiveDropdown(null);
                                                     }}
                                                     className={clsx(
                                                         "w-full text-left px-4 py-2.5 text-xs hover:bg-[var(--accent)]/10 transition-colors",
-                                                        activeModelId === model ? 'text-[var(--accent)] bg-[var(--accent)]/5' : 'text-zinc-400'
+                                                        effectiveModelId === model ? 'text-[var(--accent)] bg-[var(--accent)]/5' : 'text-zinc-400'
                                                     )}
                                                 >
                                                     {model}
@@ -1278,10 +1812,10 @@ export function Chat() {
                                     className="hidden"
                                     onChange={handleImageSelect}
                                 />
-                                <button
-                                    type="button"
-                                    onClick={() => imageInputRef.current?.click()}
-                                    disabled={!supportsImages}
+                                    <button
+                                        type="button"
+                                        onClick={() => imageInputRef.current?.click()}
+                                        disabled={!supportsImages}
                                     className={clsx(
                                         "p-2 rounded-lg transition-colors",
                                         supportsImages ? "hover:bg-zinc-800 text-zinc-500" : "text-zinc-700 cursor-not-allowed"
@@ -1290,9 +1824,19 @@ export function Chat() {
                                 >
                                     <ImageIcon size={18} />
                                 </button>
+                                {isStreaming && (
+                                    <button
+                                        type="button"
+                                        onClick={handleStop}
+                                        className="p-2 rounded-lg bg-zinc-900/60 text-zinc-300 hover:text-white hover:bg-red-500/20 transition-colors"
+                                        title="Stop generating"
+                                    >
+                                        <Square size={18} />
+                                    </button>
+                                )}
                                 <button 
                                     onClick={handleSend}
-                                    disabled={!input.trim() || loading}
+                                    disabled={!input.trim() || isStreaming}
                                     className="ml-1 p-2 bg-[var(--accent)] hover:bg-[var(--accent)]/80 disabled:bg-zinc-900 disabled:text-zinc-700 text-white rounded-xl transition-all active:scale-95 group/send"
                                 >
                                     <Send size={20} className="group-hover/send:translate-x-0.5 group-hover/send:-translate-y-0.5 transition-transform" strokeWidth={2.5} />

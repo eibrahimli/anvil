@@ -8,7 +8,7 @@ describe('ThinkingBlock Component', () => {
       <ThinkingBlock content="Analyzing project structure..." isThinking={true} />
     )
 
-    expect(screen.getByText('Agent is thinking...')).toBeInTheDocument()
+    expect(screen.getByText('Thinking')).toBeInTheDocument()
     expect(document.querySelector('.animate-spin')).toBeInTheDocument()
   })
 
@@ -17,7 +17,7 @@ describe('ThinkingBlock Component', () => {
       <ThinkingBlock content="I have analyzed the codebase." isThinking={false} />
     )
 
-    expect(screen.getByText('Thinking')).toBeInTheDocument()
+    expect(screen.getByText('Reasoning')).toBeInTheDocument()
     expect(document.querySelector('.animate-spin')).not.toBeInTheDocument()
   })
 
@@ -54,7 +54,7 @@ Line 4 of thinking content wraps up the thought process`.repeat(2)
     expect(contentElements.length).toBe(1)
 
     // Click to expand
-    const header = screen.getByText('Thinking').parentElement
+    const header = screen.getByText('Reasoning').parentElement
     fireEvent.click(header!)
 
     // Should now show all content without line-clamp
@@ -72,7 +72,7 @@ Line 4 of thinking content wraps up the thought process`.repeat(2)
     
     render(<ThinkingBlock content={longContent} isThinking={false} />)
 
-    const header = screen.getByText('Thinking').parentElement
+    const header = screen.getByText('Reasoning').parentElement
     
     // Expand
     fireEvent.click(header!)
@@ -97,9 +97,9 @@ Line 4 of thinking content wraps up the thought process`.repeat(2)
   it('has visual distinction with grey background and italic text', () => {
     render(<ThinkingBlock content="Some thinking content" isThinking={false} />)
 
-    const container = screen.getByText('Thinking').closest('.rounded-lg')
-    expect(container).toHaveClass('bg-zinc-900/30')
-    expect(container).toHaveClass('border-zinc-800/50')
+    const container = screen.getByText('Reasoning').closest('.rounded-lg')
+    expect(container).toHaveClass('bg-[var(--bg-base)]/20')
+    expect(container).toHaveClass('border-[var(--border)]/60')
     
     const contentElement = screen.getByText(/Some thinking content/)
     expect(contentElement).toHaveClass('italic')
@@ -110,7 +110,7 @@ Line 4 of thinking content wraps up the thought process`.repeat(2)
     render(<ThinkingBlock content="Completed thinking" isThinking={false} />)
     
     // Brain icon is present when not thinking (check for svg element in header)
-    const header = screen.getByText('Thinking').parentElement
+    const header = screen.getByText('Reasoning').parentElement
     expect(header?.querySelector('svg')).toBeInTheDocument()
   })
 
@@ -137,7 +137,7 @@ Third thought`
   it('applies hover effect on header', () => {
     render(<ThinkingBlock content="Test content" isThinking={false} />)
 
-    const header = screen.getByText('Thinking').parentElement
+    const header = screen.getByText('Reasoning').parentElement
     expect(header).toHaveClass('hover:bg-white/5')
     expect(header).toHaveClass('cursor-pointer')
   })
@@ -149,7 +149,7 @@ Third thought`
     render(<ThinkingBlock content={longContent} isThinking={false} />)
 
     // Should show expand/collapse button for long content (>100 chars)
-    const header = screen.getByText('Thinking').parentElement
+    const header = screen.getByText('Reasoning').parentElement
     expect(header?.querySelector('button')).toBeInTheDocument()
   })
 
@@ -159,7 +159,7 @@ Third thought`
     
     render(<ThinkingBlock content={longContent} isThinking={false} />)
 
-    const header = screen.getByText('Thinking').parentElement
+    const header = screen.getByText('Reasoning').parentElement
     const button = header?.querySelector('button')
     
     // Button should exist

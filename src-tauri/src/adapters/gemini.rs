@@ -342,7 +342,7 @@ impl ModelAdapter for GeminiAdapter {
         }
     }
 
-    async fn stream(&self, req: ChatRequest, tx: Sender<String>) -> ChatResponse {
+    async fn stream(&self, req: ChatRequest, tx: Sender<String>, _cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>) -> ChatResponse {
         // Fallback to non-streaming for now, but simulate stream by sending full content
         // This prevents the UI from getting stuck if it relies solely on events
         let res = self.chat(req).await;

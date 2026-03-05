@@ -10,10 +10,8 @@ export function useAgentEvents() {
             (event) => {
                 const { session_id, tool_call_id, tool_name, arguments: args } = event.payload;
                 const state = useStore.getState();
-                if (!state.sessionId || state.sessionId !== session_id) {
-                    return;
-                }
-                state.appendToolCallToLastAssistant({
+                state.setSessionStatus(session_id, "running");
+                state.appendToolCallToSession(session_id, {
                     id: tool_call_id,
                     name: tool_name,
                     arguments: args
@@ -26,10 +24,8 @@ export function useAgentEvents() {
             (event) => {
                 const { session_id, tool_call_id, content } = event.payload;
                 const state = useStore.getState();
-                if (!state.sessionId || state.sessionId !== session_id) {
-                    return;
-                }
-                state.addMessage({
+                state.setSessionStatus(session_id, "idle");
+                state.addMessageToSession(session_id, {
                     role: "Tool",
                     content,
                     tool_call_id
@@ -43,8 +39,7 @@ export function useAgentEvents() {
             
             try {
                 const content = await invoke<string>("read_file", { path });
-                useStore.getState().openFile(path);
-                useStore.getState().setActiveFileContent(content);
+                useStore.getState().openFileWithContent(path, content);
                 
                 console.info(`${reason}: ${path} (Line: ${line_start || 1})`);
             } catch (error) {

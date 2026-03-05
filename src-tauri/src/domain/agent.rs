@@ -96,11 +96,30 @@ impl Agent {
             "todowrite" => &mut config.todowrite,
             "doom_loop" => &mut config.doom_loop,
             "skill" => &mut config.skill,
-            _ => return,
+            _ => {
+                let entry = config
+                    .extra_tools
+                    .entry(tool_name.to_string())
+                    .or_insert_with(crate::config::ToolPermission::default);
+                let normalized_pattern = pattern.trim();
+                if normalized_pattern.is_empty()
+                    || normalized_pattern == "*"
+                    || normalized_pattern == format!("{}*", tool_name)
+                {
+                    entry.default = action;
+                } else {
+                    entry.rules.push(crate::config::manager::PermissionRule {
+                        pattern: normalized_pattern.to_string(),
+                        action,
+                    });
+                }
+                self.session.permissions.config = config.clone();
+                return;
+            }
         };
 
         tool_perm.rules.push(crate::config::manager::PermissionRule {
-            pattern,
+            pattern: pattern.trim().to_string(),
             action,
         });
         
@@ -467,7 +486,12 @@ Previous instructions remain active.",
         }
     }
 
-    pub async fn step_stream(&mut self, user_input: Option<String>, attachments: Option<Vec<Attachment>>, tx: Sender<String>) -> Result<String, String> {
+    pub async fn step_stream(&mut self, user_input: Option<String>, attachments: Option<Vec<Attachment>>, tx: Sender<String>, cancel: Option<Arc<std::sync::atomic::AtomicBool>>) -> Result<String, String> {
+        if let Some(flag) = cancel.as_ref() {
+            if flag.load(std::sync::atomic::Ordering::SeqCst) {
+                return Ok(String::new());
+            }
+        }
         // 1. Add User Message
         if let Some(input) = user_input {
             self.session.messages.push(Message {
@@ -549,7 +573,7 @@ Previous instructions remain active.",
                 temperature: Some(0.7),
                 tools: None, // Disable tools for planning
             };
-            let res = self.model.stream(req, tx).await;
+             let res = self.model.stream(req, tx, cancel.clone()).await;
             
             self.session.messages.push(Message {
                 role: res.role.clone(),
@@ -593,7 +617,7 @@ Previous instructions remain active.",
 
             // Call Model via Stream
             println!("[DEBUG] Calling model with {} messages", self.session.messages.len());
-            let res = self.model.stream(req, tx.clone()).await;
+            let res = self.model.stream(req, tx.clone(), cancel.clone()).await;
             println!("[DEBUG] Model returned, has {} tool calls", res.tool_calls.as_ref().map(|t| t.len()).unwrap_or(0));
 
             // Append Assistant Message
@@ -850,11 +874,31 @@ Previous instructions remain active.",
             "todoread" => args.get("filter").and_then(|v| v.as_str()).unwrap_or("").to_string(),
             "todowrite" => args.get("action").and_then(|v| v.as_str()).unwrap_or("").to_string(),
             "skill" => args.get("skill_name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            _ => String::new(),
+            _ => args.to_string(),
         }
     }
 
     fn suggested_pattern_for_tool(tool_name: &str, input: &str) -> String {
+        if !matches!(
+            tool_name,
+            "bash"
+                | "read_file"
+                | "write_file"
+                | "edit_file"
+                | "patch"
+                | "list"
+                | "glob"
+                | "search"
+                | "webfetch"
+                | "lsp"
+                | "task"
+                | "todoread"
+                | "todowrite"
+                | "skill"
+        ) {
+            return "*".to_string();
+        }
+
         if input.is_empty() {
             return format!("{}*", tool_name);
         }
@@ -1076,7 +1120,10 @@ Previous instructions remain active.",
                 let skill = args.get("skill_name").and_then(|v| v.as_str()).unwrap_or("");
                 config.skill.evaluate(skill)
             }
-            _ => crate::config::Action::Allow,
+            _ => {
+                let input = Self::permission_input_for_tool(tool_name, args);
+                config.evaluate_dynamic_tool(tool_name, &input)
+            }
         }
     }
     

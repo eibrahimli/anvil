@@ -1,6 +1,7 @@
 use crate::domain::models::*;
 use async_trait::async_trait;
 use serde_json::Value;
+use std::sync::{atomic::AtomicBool, Arc};
 use tokio::sync::mpsc::Sender;
 
 #[async_trait]
@@ -13,5 +14,5 @@ pub trait Tool: Send + Sync {
 #[async_trait]
 pub trait ModelAdapter: Send + Sync {
     async fn chat(&self, req: ChatRequest) -> ChatResponse;
-    async fn stream(&self, req: ChatRequest, tx: Sender<String>) -> ChatResponse;
+    async fn stream(&self, req: ChatRequest, tx: Sender<String>, cancel: Option<Arc<AtomicBool>>) -> ChatResponse;
 }

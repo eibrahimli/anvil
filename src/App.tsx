@@ -6,7 +6,7 @@ import { SidePanel } from "./components/layout/SidePanel";
 import { SettingsModal } from "./components/settings/SettingsModal";
 import { ConfirmationModal } from "./components/ConfirmationModal";
 import { Terminal } from "./components/Terminal";
-import { useUIStore } from "./stores/ui";
+import { useUIStore, AgentMode } from "./stores/ui";
 import { useStore } from "./store";
 import { useConfirmationStore } from "./stores/confirmation";
 import { useSettingsStore } from "./stores/settings";
@@ -20,9 +20,10 @@ import "./App.css";
 
 function App() {
   const { isTerminalOpen, isEditorOpen, terminalHeight, setTerminalHeight, editorWidth, setEditorWidth } = useUIStore();
-  const { setWorkspacePath, setMessages, setSessionId } = useStore();
-  const { apiKeys } = useProviderStore();
-  const { setPendingRequest } = useConfirmationStore();
+  const { setWorkspacePath, setMessages, setSessionId, setSessionConfig } = useStore();
+  const { apiKeys, openaiAuthMethod, loadApiKeysFromKeychain } = useProviderStore();
+  const { enqueueRequest, activateSession } = useConfirmationStore();
+  const sessionId = useStore((state) => state.sessionId);
   const { setDiffMode: _setDiffMode } = useSettingsStore();
   const terminalDragRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const terminalRafRef = useRef<number | null>(null);
@@ -138,6 +139,11 @@ function App() {
   useAgentEvents(); // Hook to listen for backend events
 
   useEffect(() => {
+    // Load API keys from OS keychain into in-memory store
+    loadApiKeysFromKeychain();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
     // Restore last session if available
     const restoreSession = async () => {
       const state = useStore.getState();
@@ -157,6 +163,14 @@ function App() {
         return "openai";
       };
 
+      const normalizeMode = (value: unknown): AgentMode => {
+        const mode = typeof value === "string" ? value.toLowerCase() : "build";
+        if (mode === "plan" || mode === "research" || mode === "build") {
+          return mode;
+        }
+        return "build";
+      };
+
       if (sessionId && workspacePath) {
         // Try to restore the session
         try {
@@ -164,6 +178,7 @@ function App() {
           const session = await invoke<any>("load_session", { sessionId });
           if (session) {
             console.log(`Restored session ${sessionId} for workspace ${workspacePath}`);
+            setSessionId(sessionId);
             if (Array.isArray(session.messages)) {
               setMessages(session.messages);
             }
@@ -172,8 +187,24 @@ function App() {
               ? session.model
               : (Array.isArray(session.model) ? session.model[0] : undefined);
             if (modelId) {
+              setSessionConfig(sessionId, {
+                mode: normalizeMode(session.mode),
+                modelId,
+                providerId: providerForModel(modelId)
+              });
+            }
+
+            if (modelId) {
               const provider = providerForModel(modelId);
-              const apiKey = provider === "ollama" ? "" : (apiKeys[provider] || "");
+              let apiKey = provider === "ollama" ? "" : (apiKeys[provider] || "");
+              if (provider === "openai" && openaiAuthMethod === "oauth") {
+                try {
+                  apiKey = await invoke<string>("oauth_get_access_token", { providerId: "chatgpt" });
+                } catch (error) {
+                  console.error("OpenAI OAuth not connected:", error);
+                  apiKey = "";
+                }
+              }
               if (provider === "ollama" || apiKey) {
                 await invoke<string>("replay_session", {
                   sessionId,
@@ -208,13 +239,17 @@ function App() {
   useEffect(() => {
     // Listen for confirmation requests (for tools like write_file, bash)
     const unlistenConfirm = listen<any>("request-confirmation", (event) => {
-      setPendingRequest(event.payload);
+      enqueueRequest(event.payload);
     });
 
     return () => {
       unlistenConfirm.then(f => f());
     };
-  }, []);
+  }, [enqueueRequest]);
+
+  useEffect(() => {
+    activateSession(sessionId ?? null);
+  }, [activateSession, sessionId]);
 
   return (
     <AppShell>

@@ -2,6 +2,10 @@ import { describe, it, expect } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { ActionCard } from '../ActivityCards'
 
+const getCardContainerByTitle = (title: string) => {
+  return screen.getByText(title).closest('.rounded-xl')
+}
+
 describe('ActionCard Component', () => {
   describe('Rendering', () => {
     it('renders with correct title and status', () => {
@@ -88,9 +92,9 @@ describe('ActionCard Component', () => {
         />
       )
 
-      const container = document.querySelector('.rounded-lg')
-      expect(container).toHaveClass('bg-zinc-800/50')
-      expect(container).toHaveClass('border-zinc-700')
+      const container = getCardContainerByTitle('Writing file')
+      expect(container).toHaveClass('bg-[var(--bg-base)]/35')
+      expect(container).toHaveClass('border-[var(--border)]/60')
     })
 
     it('shows running state with correct styling', () => {
@@ -102,9 +106,9 @@ describe('ActionCard Component', () => {
         />
       )
 
-      const container = document.querySelector('.rounded-lg')
-      expect(container).toHaveClass('bg-blue-900/20')
-      expect(container).toHaveClass('border-blue-800/50')
+      const container = getCardContainerByTitle('Running command')
+      expect(container).toHaveClass('bg-blue-500/5')
+      expect(container).toHaveClass('border-blue-500/20')
 
       // Loader icon should have animate-spin class
       const loader = document.querySelector('.animate-spin')
@@ -121,9 +125,9 @@ describe('ActionCard Component', () => {
         />
       )
 
-      const container = document.querySelector('.rounded-lg')
-      expect(container).toHaveClass('bg-green-900/20')
-      expect(container).toHaveClass('border-green-800/50')
+      const container = getCardContainerByTitle('Reading file')
+      expect(container).toHaveClass('bg-emerald-500/5')
+      expect(container).toHaveClass('border-emerald-500/20')
 
       // CheckCircle icon (not spinning)
       const spinningElements = document.querySelectorAll('.animate-spin')
@@ -140,9 +144,9 @@ describe('ActionCard Component', () => {
         />
       )
 
-      const container = document.querySelector('.rounded-lg')
-      expect(container).toHaveClass('bg-red-900/20')
-      expect(container).toHaveClass('border-red-800/50')
+      const container = getCardContainerByTitle('Editing file')
+      expect(container).toHaveClass('bg-red-500/5')
+      expect(container).toHaveClass('border-red-500/20')
     })
 
     it('cycles through all status types', () => {
@@ -341,7 +345,7 @@ describe('ActionCard Component', () => {
         />
       )
 
-      const container = document.querySelector('.rounded-lg')
+      const container = getCardContainerByTitle('Test')
       expect(container).toHaveClass('border')
       expect(container).toHaveClass('overflow-hidden')
     })
@@ -370,8 +374,8 @@ describe('ActionCard Component', () => {
         />
       )
 
-      const header = document.querySelector('.flex.items-center')
-      expect(header).toHaveClass('gap-3')
+      const header = screen.getByText('Running npm test').closest('.flex-1')?.parentElement
+      expect(header).toHaveClass('gap-2.5')
     })
   })
 
@@ -466,7 +470,7 @@ describe('ActionCard Component', () => {
       )
 
       const preElement = document.querySelector('pre')
-      expect(preElement).toHaveClass('max-h-48')
+      expect(preElement).toHaveClass('max-h-56')
       expect(preElement).toHaveClass('overflow-y-auto')
     })
 

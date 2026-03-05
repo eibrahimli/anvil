@@ -5,7 +5,6 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::mpsc::Sender;
-use eventsource_stream::Eventsource;
 use futures::stream::StreamExt;
 use std::collections::HashMap;
 
@@ -84,37 +83,6 @@ struct OllamaResponseMessage {
     role: String,
     content: Option<String>,
     tool_calls: Option<Vec<OllamaToolCall>>,
-}
-
-// --- Stream Response Structs ---
-
-#[derive(Deserialize)]
-struct OllamaStreamResponse {
-    choices: Vec<OllamaStreamChoice>,
-}
-
-#[derive(Deserialize)]
-struct OllamaStreamChoice {
-    delta: OllamaStreamDelta,
-}
-
-#[derive(Deserialize)]
-struct OllamaStreamDelta {
-    content: Option<String>,
-    tool_calls: Option<Vec<OllamaToolCallDelta>>,
-}
-
-#[derive(Deserialize, Clone)]
-struct OllamaToolCallDelta {
-    index: i32,
-    id: Option<String>,
-    function: Option<OllamaFunctionCallDelta>,
-}
-
-#[derive(Deserialize, Clone)]
-struct OllamaFunctionCallDelta {
-    name: Option<String>,
-    arguments: Option<String>,
 }
 
 #[async_trait]
@@ -231,7 +199,7 @@ impl ModelAdapter for OllamaAdapter {
         }
     }
 
-    async fn stream(&self, req: ChatRequest, tx: Sender<String>) -> ChatResponse {
+    async fn stream(&self, req: ChatRequest, tx: Sender<String>, cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>) -> ChatResponse {
         let model_id = req.model_id.0.clone();
         let messages: Vec<OllamaMessage> = req
             .messages
@@ -301,45 +269,67 @@ impl ModelAdapter for OllamaAdapter {
                     };
                 }
 
-                let mut stream = response.bytes_stream().eventsource();
+        let mut buffer = String::new();
+        let mut stream = response.bytes_stream();
 
-                while let Some(event) = stream.next().await {
-                    match event {
-                        Ok(event) => {
-                            if event.data == "[DONE]" {
-                                break;
+        while let Some(chunk) = stream.next().await {
+            if let Some(flag) = cancel.as_ref() {
+                if flag.load(std::sync::atomic::Ordering::SeqCst) {
+                    break;
+                }
+            }
+            match chunk {
+                Ok(bytes) => {
+                    let text = String::from_utf8_lossy(&bytes);
+                    buffer.push_str(&text);
+
+                    while let Some(pos) = buffer.find('\n') {
+                        let line = buffer[..pos].trim().to_string();
+                        buffer = buffer[pos + 1..].to_string();
+
+                        if line.is_empty() {
+                            continue;
+                        }
+
+                        let parsed: serde_json::Value = match serde_json::from_str(&line) {
+                            Ok(value) => value,
+                            Err(_) => continue,
+                        };
+
+                        if parsed.get("done").and_then(|v| v.as_bool()) == Some(true) {
+                            break;
+                        }
+
+                        if let Some(message) = parsed.get("message") {
+                            if let Some(content) = message.get("content").and_then(|v| v.as_str()) {
+                                accumulated_content.push_str(content);
+                                let _ = tx.send(content.to_string()).await;
                             }
-                            if let Ok(chunk) = serde_json::from_str::<OllamaStreamResponse>(&event.data) {
-                                if let Some(choice) = chunk.choices.first() {
-                                    if let Some(content) = &choice.delta.content {
-                                        accumulated_content.push_str(content);
-                                        let _ = tx.send(content.clone()).await;
-                                    }
 
-                                    if let Some(tool_calls) = &choice.delta.tool_calls {
-                                        for tc in tool_calls {
-                                            let entry = tool_call_accumulator.entry(tc.index).or_insert((String::new(), String::new(), String::new()));
-                                            if let Some(id) = &tc.id {
-                                                entry.0 = id.clone();
-                                            }
-                                            if let Some(func) = &tc.function {
-                                                if let Some(name) = &func.name {
-                                                    entry.1.push_str(name);
-                                                }
-                                                if let Some(args) = &func.arguments {
-                                                    entry.2.push_str(args);
-                                                }
-                                            }
+                            if let Some(tool_calls) = message.get("tool_calls").and_then(|v| v.as_array()) {
+                                for (index, tc) in tool_calls.iter().enumerate() {
+                                    let entry = tool_call_accumulator.entry(index as i32).or_insert((String::new(), String::new(), String::new()));
+                                    if let Some(id) = tc.get("id").and_then(|v| v.as_str()) {
+                                        entry.0 = id.to_string();
+                                    }
+                                    if let Some(func) = tc.get("function") {
+                                        if let Some(name) = func.get("name").and_then(|v| v.as_str()) {
+                                            entry.1.push_str(name);
+                                        }
+                                        if let Some(args) = func.get("arguments").and_then(|v| v.as_str()) {
+                                            entry.2.push_str(args);
                                         }
                                     }
                                 }
                             }
                         }
-                        Err(e) => {
-                            eprintln!("Stream error: {}", e);
-                        }
                     }
                 }
+                Err(e) => {
+                    eprintln!("Stream error: {}", e);
+                }
+            }
+        }
             }
             Err(e) => {
                 let error_msg = if e.to_string().contains("connect") {

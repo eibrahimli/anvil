@@ -1,7 +1,20 @@
-# Tauri + React + Typescript
+# Anvil
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+Anvil is a local-first, agent-first coding environment built with Tauri (Rust backend) and React/TypeScript (frontend).
 
-## Recommended IDE Setup
+## Core Docs
+- `DOCS/README.md`
+- `DOCS/FOUNDATION.md`
+- `DOCS/AGENT_WORKFLOW.md`
+- `DOCS/ROADMAP_STATUS.md`
+- `DOCS/MCP.md`
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+## Agent Bootstrap Docs
+- `.anvil/rules.md`
+- `.anvil/PLAN.md`
+
+## Development
+- Frontend only: `npm run dev`
+- Full app: `npm run tauri dev`
+- Frontend build: `npm run build`
+- Rust compile check: `cd src-tauri && cargo check`

@@ -8,9 +8,9 @@ import { invoke } from '@tauri-apps/api/core';
 import clsx from 'clsx';
 
 export function ActivityBar() {
-    const { activeSidebarTab, setActiveSidebarTab, isTerminalOpen, toggleTerminal, setSettingsOpen, isOrchestratorOpen, setOrchestratorOpen } = useUIStore();
-    const { setWorkspacePath, setSessionId, workspacePath } = useStore();
-    const { apiKeys, activeProviderId, activeModelId } = useProviderStore();
+    const { activeSidebarTab, setActiveSidebarTab, isTerminalOpen, toggleTerminal, setSettingsOpen, isOrchestratorOpen, setOrchestratorOpen, activeMode } = useUIStore();
+    const { setWorkspacePath, setSessionId, workspacePath, setSessionConfig } = useStore();
+    const { apiKeys, activeProviderId, activeModelId, openaiAuthMethod, setOpenAIAuthMethod } = useProviderStore();
     const { workspaces, addWorkspace } = useWorkspaceStore();
 
     const handleAddWorkspace = async () => {
@@ -46,7 +46,24 @@ export function ActivityBar() {
         setSessionId(""); 
         
         // Try to auto-create session if we have an API key for active provider (Ollama doesn't need one)
-        const key = apiKeys[activeProviderId];
+        let key = apiKeys[activeProviderId];
+        if (activeProviderId === "openai" && (openaiAuthMethod === "oauth" || !key)) {
+            try {
+                const oauthToken = await invoke<string>("oauth_get_access_token", { providerId: "chatgpt" });
+                if (oauthToken) {
+                    key = oauthToken;
+                    if (openaiAuthMethod !== "oauth") {
+                        setOpenAIAuthMethod("oauth");
+                    }
+                }
+            } catch (e) {
+                console.error("OpenAI OAuth not connected:", e);
+                key = "";
+            }
+        }
+        if (!activeModelId) {
+            return;
+        }
         if (key || activeProviderId === 'ollama') {
             try {
                 const sid = await invoke<string>("create_session", {
@@ -54,6 +71,11 @@ export function ActivityBar() {
                     apiKey: key || '',  // Empty string for Ollama
                     provider: activeProviderId,
                     modelId: activeModelId
+                });
+                setSessionConfig(sid, {
+                    mode: activeMode,
+                    modelId: activeModelId,
+                    providerId: activeProviderId
                 });
                 setSessionId(sid);
             } catch (e) {

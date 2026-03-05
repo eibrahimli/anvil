@@ -51,7 +51,7 @@ export function ConfirmationModal() {
                     : 'bg-[var(--accent)]/15 text-[var(--accent)]';
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/50 backdrop-blur-sm">
             <div className={`bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200 ${isDiff ? 'w-[90vw] h-[90vh]' : 'w-[600px]'}`}>
                 
                 {/* Header */}

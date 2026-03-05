@@ -1,36 +1,38 @@
 # Anvil Project Rules & Mandates
 
+This file is the compact agent-facing rule set. Canonical detail lives in `DOCS/FOUNDATION.md`.
+
 ## 1. Core Philosophy
-- **Agent-First:** Anvil is an agent runtime with a UI, not an IDE with a chat plugin.
-- **Local-First:** All logic, storage, and execution happen locally on the user's machine.
-- **Model-Agnostic:** Support multiple providers (OpenAI, Anthropic, Gemini, Ollama, etc.) via a unified adapter interface.
-- **Security-First:** No silent execution. All tool usage requires permission/verification.
+- **Agent-First:** Anvil is an agent runtime with a UI.
+- **Local-First:** Logic, storage, and execution run locally.
+- **Model-Agnostic:** Providers are adapter-based and replaceable.
+- **Security-First:** No silent sensitive execution.
 
 ## 2. Architecture Principles (Non-Negotiable)
-- **Hexagonal / Clean Architecture:**
-  - **Core Domain:** Contains business logic (Agent loop, Context building). independent of UI, DB, or external providers.
-  - **Adapters:** Implement interfaces for Models, Tools, and Storage. Replaceable without changing core logic.
-  - **Explicit Boundaries:** Models, Tools, Agents, Storage, and UI must remain decoupled.
+- **Hexagonal/Clean boundaries:**
+  - Core domain is independent of UI/storage/providers.
+  - Adapters implement models/tools/storage interfaces.
+  - UI remains orchestration and visualization layer.
 
-## 3. Coding Standards
-- **SOLID:**
-  - **S:** Single Responsibility (One tool = one job).
-  - **O:** Open/Closed (Add new models via adapters, don't modify core).
-  - **L:** Liskov Substitution (All model adapters must be interchangeable).
-  - **I:** Interface Segregation (Avoid god interfaces).
-  - **D:** Dependency Inversion (Core depends on traits, not concrete implementations).
-- **DRY:** Shared logic in core. No copy-pasted provider logic.
-- **YAGNI:** Build only what is needed for parity. No speculative features.
+## 3. Engineering Standards
+- Apply **SOLID**, **DRY**, and **YAGNI** consistently.
+- Prefer explicit interfaces over implicit coupling.
+- Keep tool behavior deterministic and schema-driven.
 
 ## 4. Security Model
-- **No Silent Shell Execution:** User must approve or verify commands (via permission system).
-- **Diff Preview:** Code changes require a diff view before application.
-- **Network Default Off:** Agents cannot access the internet unless explicitly permitted.
-- **Sandboxed Workspace:** Operations should be scoped to the workspace path.
+- No silent shell execution.
+- Diff preview before code-changing operations.
+- Network access policy-controlled.
+- Workspace/path sandboxing enforced.
 
-## 5. Technology Stack Constraints
-- **Desktop Framework:** Tauri + Rust (Linux-first, native security).
-- **Frontend:** React + TypeScript + Monaco Editor + Tailwind CSS.
-- **Backend:** Rust (Tokio async runtime).
-- **Storage:** SQLite (rusqlite).
-- **IPC:** Tauri IPC for communication between UI and Agent Runtime.
+## 5. Runtime UX Expectations
+- Tool activity must be observable in UI.
+- Permission prompts must be explicit and actionable.
+- File edits must be reviewable by the user.
+
+## 6. Stack Constraints
+- Desktop: Tauri + Rust.
+- Frontend: React + TypeScript + Tailwind + Monaco.
+- Runtime: Tokio.
+- Storage: SQLite.
+- IPC: Tauri commands/events.

@@ -3,6 +3,7 @@ import { create } from 'zustand';
 type SidebarTab = 'explorer' | 'search' | 'workflows' | 'settings' | 'rules' | 'skills' | 'mcp' | null;
 export type AgentMode = 'plan' | 'build' | 'research';
 export type Temperature = 'low' | 'medium' | 'high';
+export type SettingsTab = 'general' | 'shortcuts' | 'providers' | 'models' | 'oauth' | 'permissions' | 'diagnostics';
 
 interface UIState {
     activeSidebarTab: SidebarTab;
@@ -13,6 +14,7 @@ interface UIState {
     sidebarWidth: number;
     editorWidth: number;
     isSettingsOpen: boolean;
+    settingsTab: SettingsTab;
     isEditorOpen: boolean;
     isOrchestratorOpen: boolean;
     isQuestionOpen: boolean;
@@ -25,6 +27,8 @@ interface UIState {
     setSidebarWidth: (width: number) => void;
     setEditorWidth: (width: number) => void;
     setSettingsOpen: (open: boolean) => void;
+    setSettingsTab: (tab: SettingsTab) => void;
+    openSettingsTab: (tab: SettingsTab) => void;
     setEditorOpen: (open: boolean) => void;
     setOrchestratorOpen: (open: boolean) => void;
     setQuestionOpen: (open: boolean) => void;
@@ -39,6 +43,7 @@ export const useUIStore = create<UIState>((set) => ({
     sidebarWidth: 320,
     editorWidth: 560,
     isSettingsOpen: false,
+    settingsTab: 'general',
     isEditorOpen: false,
     isOrchestratorOpen: false,
     isQuestionOpen: false,
@@ -51,6 +56,8 @@ export const useUIStore = create<UIState>((set) => ({
     setSidebarWidth: (width) => set({ sidebarWidth: width }),
     setEditorWidth: (width) => set({ editorWidth: width }),
     setSettingsOpen: (open) => set({ isSettingsOpen: open }),
+    setSettingsTab: (tab) => set({ settingsTab: tab }),
+    openSettingsTab: (tab) => set({ isSettingsOpen: true, settingsTab: tab }),
     setEditorOpen: (open) => set({ isEditorOpen: open }),
     setOrchestratorOpen: (open) => set({ isOrchestratorOpen: open }),
     setQuestionOpen: (open) => set({ isQuestionOpen: open }),

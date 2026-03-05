@@ -6,7 +6,7 @@ import { ChevronDown } from "lucide-react";
 
 export function Setup() {
     const { setSessionId, setWorkspacePath, setApiKey, setProvider } = useStore();
-    const { enabledModels, setActiveModel } = useProviderStore();
+    const { enabledModels, setActiveModel, modelRegistry } = useProviderStore();
     
     const [path, setPath] = useState("/home/develvir/Desktop/anvil"); 
     const [key, setKey] = useState("");
@@ -17,12 +17,9 @@ export function Setup() {
 
     // Filter models by provider
     const getModelsForProvider = (p: string) => {
-        // This mapping logic should ideally be centralized or models should have provider metadata in the store
-        // For now, simple string matching
-        if (p === 'openai') return enabledModels.filter(m => m.startsWith('gpt') || m.startsWith('o1') || m.startsWith('o3'));
-        if (p === 'gemini') return enabledModels.filter(m => m.startsWith('gemini'));
-        if (p === 'anthropic') return enabledModels.filter(m => m.startsWith('claude'));
-        return [];
+        return modelRegistry
+            .filter((model) => model.providerId === p && enabledModels.includes(model.id))
+            .map((model) => model.id);
     };
 
     const currentModels = getModelsForProvider(provider);
@@ -35,7 +32,7 @@ export function Setup() {
     }
 
     async function handleConnect() {
-        if (!key) {
+        if (!key && provider !== "ollama") {
             setError("API Key is required");
             return;
         }
@@ -55,7 +52,9 @@ export function Setup() {
             });
             setSessionId(sid);
             setWorkspacePath(path);
-            setApiKey(key);
+            if (provider !== "ollama") {
+                setApiKey(key);
+            }
             setProvider(provider);
             setActiveModel(provider, modelId);
         } catch (e) {
@@ -94,6 +93,7 @@ export function Setup() {
                                 <option value="openai" style={{ backgroundColor: '#030712', color: 'white' }}>OpenAI</option>
                                 <option value="gemini" style={{ backgroundColor: '#030712', color: 'white' }}>Google Gemini</option>
                                 <option value="anthropic" style={{ backgroundColor: '#030712', color: 'white' }}>Anthropic Claude</option>
+                                <option value="ollama" style={{ backgroundColor: '#030712', color: 'white' }}>Ollama (Local)</option>
                             </select>
                             <ChevronDown size={16} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                         </div>
@@ -129,8 +129,10 @@ export function Setup() {
                         onChange={e => setKey(e.target.value)}
                         placeholder={
                             provider === 'gemini' ? "AIza..." : 
-                            provider === 'anthropic' ? "sk-ant-..." : "sk-..."
+                            provider === 'anthropic' ? "sk-ant-..." : 
+                            provider === 'ollama' ? "Not required" : "sk-..."
                         }
+                        disabled={provider === "ollama"}
                     />
                 </div>
                 {error && <div className="text-red-500 text-sm bg-red-900/20 p-2 rounded border border-red-900">{error}</div>}
